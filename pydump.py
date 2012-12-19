@@ -1,8 +1,26 @@
+#!/usr/bin/env python
 import sys
 import pickle
 
-def flat_dict(d):
-    return dict(zip(d.keys(), [repr(v) for v in d.values()]))
+def save_traceback(filename, tb=None):
+    """
+    Saves a Python traceback in a pickled file. This function will usually be called from
+    an except block to allow post-mortem debugging of a failed process.
+
+    The saved file can be loaded with load_traceback which creates a fake traceback
+    object that can be passed to any reasonable Python debugger.
+
+    The simplest way to do that is to run:
+
+       $ pydump.py my_dump_file.pydump
+    """
+    if not tb:
+        tb = sys.exc_info()[2]
+    ftb = FakeTraceback(tb)
+    pickle.dump(ftb, open(filename, 'wb'))
+
+def load_traceback(filename):
+    return pickle.load(open(filename, 'rb'))
 
 class FakeCode(object):
     def __init__(self, code):
@@ -15,29 +33,14 @@ class FakeCode(object):
         )
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
-        # self.co_cellvars = code.co_cellvars
-        # self.co_code = code.co_code
-        # self.co_flags = code.co_flags
-        # self.co_freevars = code.co_freevars
-        # self.co_names = code.co_names
-        # self.co_nlocals = code.co_nlocals
-        # self.co_stacksize = code.co_stacksize
-        # self.co_varnames = code.co_varnames
 
 class FakeFrame(object):
     def __init__(self, frame):
         self.f_code = FakeCode(frame.f_code)
-        self.f_locals = flat_dict(frame.f_locals)
-        self.f_globals = flat_dict(frame.f_globals)
+        self.f_locals = _flat_dict(frame.f_locals)
+        self.f_globals = _flat_dict(frame.f_globals)
         self.f_lineno = frame.f_lineno
         self.f_back = FakeFrame(frame.f_back) if frame.f_back else None
-        # self.f_lasti = frame.f_lasti
-        # self.f_builtins = frame.f_builtins
-        # self.f_exc_traceback = frame.f_exc_traceback
-        # self.f_exc_type = frame.f_exc_type
-        # self.f_exc_value = frame.f_exc_value
-        # self.f_restricted = frame.f_restricted
-        # self.f_trace = frame.f_trace
 
 class FakeTraceback(object):
     def __init__(self, traceback):
@@ -46,22 +49,35 @@ class FakeTraceback(object):
         self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
 
+def _flat_dict(d):
+    return dict(zip(d.keys(), [repr(v) for v in d.values()]))
+
 if __name__ == '__main__':
-    def foo():
-        foovar = 7
-        bar()
+    from optparse import OptionParser
+    parser = OptionParser(usage="%prog <dump>", description="Opens a *.pydump file for post-mortem debugging")
+    parser.add_option("--pdb",  action="append_const", const="pdb",  dest="debuggers", help="Use builtin pdb or pdb++")
+    parser.add_option("--pudb", action="append_const", const="pudb", dest="debuggers", help="Use pudb visual debugger")
+    parser.add_option("--ipdb", action="append_const", const="ipdb", dest="debuggers", help="Use ipdb IPython debugger")
+    (options, args) = parser.parse_args()
 
-    def bar():
-        barvar = "hello"
-        baz()
+    if len(args) < 1:
+        parser.error('missing arguments')
 
-    def baz():
-        raise Exception("BOOM!")
+    tb = load_traceback(args[0])
 
-    try:
-        foo()
-    except:
-        _, _, tb = sys.exc_info()
-        ftb = FakeTraceback(tb)
+    if not options.debuggers:
+        options.debuggers = ["pudb", "ipdb", "pdb"]
 
-    pickle.dump(ftb, open('pycore.dump', 'wb'))
+    for debugger in options.debuggers:
+        try:
+            dbg = __import__(debugger)
+        except ImportError, e:
+            print >>sys.stderr, str(e)
+            continue
+        else:
+            print >>sys.stderr, "Starting debugger %s..." % debugger
+            if debugger == "pudb":
+                dbg.post_mortem((None, None, tb))
+            else:
+                dbg.post_mortem(tb)
+            break
