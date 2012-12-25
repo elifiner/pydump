@@ -27,7 +27,7 @@ import pdb
 import pickle
 import linecache
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 __all__ = ['save_dump', 'load_dump', 'debug_dump', '__version__']
 
 DUMP_VERSION = 1
