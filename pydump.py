@@ -26,7 +26,7 @@ import sys
 import pickle
 import linecache
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __all__ = ['save_dump', 'load_dump', '__version__']
 
 DUMP_VERSION = 1
