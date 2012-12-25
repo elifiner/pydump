@@ -57,6 +57,7 @@ class FakeCode(object):
         )
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
+        self.co_varnames = code.co_varnames
 
 class FakeFrame(object):
     def __init__(self, frame):
@@ -74,7 +75,12 @@ class FakeTraceback(object):
         self.tb_lasti = 0
 
 def _flat_dict(d):
-    return dict(zip(d.keys(), [repr(v) for v in d.values()]))
+    def safe_repr(v):
+        try:
+            return repr(v)
+        except Exception, e:
+            return "error: " + str(e)
+    return dict(zip(d.keys(), [safe_repr(v) for v in d.values()]))
 
 if __name__ == '__main__':
     from optparse import OptionParser
