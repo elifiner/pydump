@@ -23,11 +23,12 @@ THE SOFTWARE.
 
 import os
 import sys
+import pdb
 import pickle
 import linecache
 
 __version__ = "1.0.1"
-__all__ = ['save_dump', 'load_dump', '__version__']
+__all__ = ['save_dump', 'load_dump', 'debug_dump', '__version__']
 
 DUMP_VERSION = 1
 
@@ -58,6 +59,15 @@ def load_dump(filename):
     if 'pydump.pydump' not in sys.modules:
         sys.modules['pydump.pydump'] = sys.modules[__name__]
     return pickle.load(open(filename, 'rb'))
+
+def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
+    dump = load_dump(dump_filename)
+    _cache_files(dump['files'])
+    tb = dump['traceback']
+    _old_checkcache = linecache.checkcache
+    linecache.checkcache = lambda filename=None: None
+    post_mortem_func(tb)
+    linecache.checkcache = _old_checkcache
 
 class FakeClass(object):
     def __init__(self, repr, vars):
@@ -125,3 +135,8 @@ def _safe_repr(v):
 
 def _flat_dict(d):
     return dict(zip(d.keys(), [_safe_repr(v) for v in d.values()]))
+
+def _cache_files(files):
+    for name, data in files.iteritems():
+        lines = [line+'\n' for line in data.splitlines()]
+        linecache.cache[name] = (len(data), None, lines, name)

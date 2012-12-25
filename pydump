@@ -1,16 +1,9 @@
 #!/usr/bin/env python
+import pdb
 import sys
 import pydump
 import linecache
 from optparse import OptionParser
-
-def cache_files(files):
-    for name, data in files.iteritems():
-        lines = [line+'\n' for line in data.splitlines()]
-        linecache.cache[name] = (len(data), None, lines, name)
-
-def patch_linecache_checkcache():
-    linecache.checkcache = lambda filename=None: None
 
 if __name__ == '__main__':
     
@@ -24,11 +17,6 @@ if __name__ == '__main__':
         parser.print_help()
         sys.exit(1)
 
-    dump = pydump.load_dump(args[0])
-    cache_files(dump['files'])
-    patch_linecache_checkcache()
-    tb = dump['traceback']
-
     if not options.debuggers:
         options.debuggers = ["pdb"]
 
@@ -41,7 +29,7 @@ if __name__ == '__main__':
         else:
             print >>sys.stderr, "Starting %s..." % debugger
             if debugger == "pudb":
-                dbg.post_mortem((None, None, tb))
+                pydump.debug_dump(args[0], lambda tb: dbg.post_mortem((None, None, tb)))
             else:
-                dbg.post_mortem(tb)
+                pydump.debug_dump(args[0])
             break
