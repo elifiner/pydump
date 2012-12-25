@@ -27,4 +27,4 @@ in the same place as on the production box).
 Future enhancements
 ===================
 
-* Support more depths for local and global variables (right now I only store the repr)
+* Support more depths for local and global variables

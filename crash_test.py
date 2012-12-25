@@ -8,7 +8,15 @@ if __name__ == '__main__':
         baz()
 
     def baz():
-        raise Exception("BOOM!")
+        momo = Momo()
+        momo.raiser()
+
+    class Momo(object):
+        def __init__(self):
+            self.momodata = "Some data"
+
+        def raiser(self):
+            raise Exception("BOOM!")
 
     try:
         foo()

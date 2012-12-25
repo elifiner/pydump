@@ -53,6 +53,14 @@ def save_dump(filename, tb=None):
 def load_dump(filename):
     return pickle.load(open(filename, 'rb'))
 
+class FakeClass(object):
+    def __init__(self, repr, vars):
+        self.__repr = repr
+        self.__dict__.update(vars)
+
+    def __repr__(self):
+        return self.__repr
+
 class FakeCode(object):
     def __init__(self, code):
         self.co_filename = code.co_filename
@@ -74,6 +82,11 @@ class FakeFrame(object):
         self.f_lineno = frame.f_lineno
         self.f_back = FakeFrame(frame.f_back) if frame.f_back else None
 
+        # add current class memebers
+        if 'self' in frame.f_locals:
+            obj = frame.f_locals['self']
+            self.f_locals['self'] = FakeClass(_safe_repr(obj), _flat_dict(obj.__dict__))
+
 class FakeTraceback(object):
     def __init__(self, traceback):
         self.tb_frame = FakeFrame(traceback.tb_frame)
@@ -94,10 +107,14 @@ def _get_traceback_files(traceback):
         traceback = traceback.tb_next
     return files
 
-def _flat_dict(d):
-    def safe_repr(v):
-        try:
+def _safe_repr(v):
+    try:
+        if isinstance(v, str):
+            return v
+        else:
             return repr(v)
-        except Exception, e:
-            return "error: " + str(e)
-    return dict(zip(d.keys(), [safe_repr(v) for v in d.values()]))
+    except Exception, e:
+        return "error: " + str(e)
+
+def _flat_dict(d):
+    return dict(zip(d.keys(), [_safe_repr(v) for v in d.values()]))
