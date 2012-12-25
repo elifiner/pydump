@@ -29,6 +29,8 @@ import linecache
 __version__ = "1.0.0"
 __all__ = ['save_dump', 'load_dump', '__version__']
 
+DUMP_VERSION = 1
+
 def save_dump(filename, tb=None):
     """
     Saves a Python traceback in a pickled file. This function will usually be called from
@@ -46,11 +48,15 @@ def save_dump(filename, tb=None):
     fake_tb = FakeTraceback(tb)
     dump = {
         'traceback':fake_tb,
-        'files':_get_traceback_files(fake_tb)
+        'files':_get_traceback_files(fake_tb),
+        'dump_version' : DUMP_VERSION
     }
     pickle.dump(dump, open(filename, 'wb'))
 
 def load_dump(filename):
+    # ugly hack to handle running non-install pydump
+    if 'pydump.pydump' not in sys.modules:
+        sys.modules['pydump.pydump'] = sys.modules[__name__]
     return pickle.load(open(filename, 'rb'))
 
 class FakeClass(object):
@@ -99,10 +105,11 @@ def _get_traceback_files(traceback):
     while traceback:
         frame = traceback.tb_frame
         while frame:
+            filename = os.path.abspath(frame.f_code.co_filename)
             try:
-                files[frame.f_code.co_filename] = open(frame.f_code.co_filename).read()
+                files[filename] = open(filename).read()
             except IOError:
-                files[frame.f_code.co_filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                files[filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
