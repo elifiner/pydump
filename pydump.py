@@ -23,15 +23,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import os
 import sys
 import pickle
+import linecache
 
-def save_traceback(filename, tb=None):
+def save_dump(filename, tb=None):
     """
     Saves a Python traceback in a pickled file. This function will usually be called from
     an except block to allow post-mortem debugging of a failed process.
 
-    The saved file can be loaded with load_traceback which creates a fake traceback
+    The saved file can be loaded with load_dumpwhich creates a fake traceback
     object that can be passed to any reasonable Python debugger.
 
     The simplest way to do that is to run:
@@ -40,10 +42,14 @@ def save_traceback(filename, tb=None):
     """
     if not tb:
         tb = sys.exc_info()[2]
-    ftb = FakeTraceback(tb)
-    pickle.dump(ftb, open(filename, 'wb'))
+    fake_tb = FakeTraceback(tb)
+    dump = {
+        'traceback':fake_tb,
+        'files':_get_traceback_files(fake_tb)
+    }
+    pickle.dump(dump, open(filename, 'wb'))
 
-def load_traceback(filename):
+def load_dump(filename):
     return pickle.load(open(filename, 'rb'))
 
 class FakeCode(object):
@@ -74,6 +80,27 @@ class FakeTraceback(object):
         self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
 
+def _get_traceback_files(traceback):
+    files = {}
+    while traceback:
+        frame = traceback.tb_frame
+        while frame:
+            try:
+                files[frame.f_code.co_filename] = open(frame.f_code.co_filename).read()
+            except IOError:
+                files[frame.f_code.co_filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+            frame = frame.f_back
+        traceback = traceback.tb_next
+    return files
+
+def _cache_files(files):
+    for name, data in files.iteritems():
+        lines = [line+'\n' for line in data.splitlines()]
+        linecache.cache[name] = (len(data), None, lines, name)
+
+def _patch_linecache_checkcache():
+    linecache.checkcache = lambda filename=None: None
+
 def _flat_dict(d):
     def safe_repr(v):
         try:
@@ -93,7 +120,10 @@ if __name__ == '__main__':
     if len(args) < 1:
         parser.error('missing arguments')
 
-    tb = load_traceback(args[0])
+    dump = load_dump(args[0])
+    _cache_files(dump['files'])
+    _patch_linecache_checkcache()
+    tb = dump['traceback']
 
     if not options.debuggers:
         options.debuggers = ["pudb", "ipdb", "pdb"]

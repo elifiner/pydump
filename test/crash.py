@@ -17,4 +17,4 @@ if __name__ == '__main__':
         foo()
     except:
         import pydump
-        pydump.save_traceback('crash.dump')
+        pydump.save_dump('crash.dump')
