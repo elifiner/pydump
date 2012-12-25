@@ -126,7 +126,7 @@ if __name__ == '__main__':
     tb = dump['traceback']
 
     if not options.debuggers:
-        options.debuggers = ["pudb", "ipdb", "pdb"]
+        options.debuggers = ["pdb"]
 
     for debugger in options.debuggers:
         try:

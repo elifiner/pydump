@@ -1,6 +1,3 @@
-import sys, os
-sys.path.append(os.path.split(__file__)[0]+'/..')
-
 if __name__ == '__main__':
     def foo():
         foovar = 7
@@ -17,4 +14,7 @@ if __name__ == '__main__':
         foo()
     except:
         import pydump
-        pydump.save_dump('crash.dump')
+        filename = __file__ + '.dump'
+        print "Exception caught, writing %s" % filename
+        pydump.save_dump(filename)
+        print "Run ./pydump.py %s to debug" % (filename)
