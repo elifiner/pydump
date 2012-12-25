@@ -89,6 +89,7 @@ class FakeCode(object):
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
         self.co_varnames = code.co_varnames
+        self.co_flags = code.co_flags
 
 class FakeFrame(object):
     def __init__(self, frame):
