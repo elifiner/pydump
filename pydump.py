@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 The MIT License (MIT)
 Copyright (C) 2012 Eli Finer <eli.finer@gmail.com>
@@ -27,6 +25,9 @@ import os
 import sys
 import pickle
 import linecache
+
+__version__ = "1.0.0"
+__all__ = ['save_dump', 'load_dump', '__version__']
 
 def save_dump(filename, tb=None):
     """
@@ -93,14 +94,6 @@ def _get_traceback_files(traceback):
         traceback = traceback.tb_next
     return files
 
-def _cache_files(files):
-    for name, data in files.iteritems():
-        lines = [line+'\n' for line in data.splitlines()]
-        linecache.cache[name] = (len(data), None, lines, name)
-
-def _patch_linecache_checkcache():
-    linecache.checkcache = lambda filename=None: None
-
 def _flat_dict(d):
     def safe_repr(v):
         try:
@@ -108,36 +101,3 @@ def _flat_dict(d):
         except Exception, e:
             return "error: " + str(e)
     return dict(zip(d.keys(), [safe_repr(v) for v in d.values()]))
-
-if __name__ == '__main__':
-    from optparse import OptionParser
-    parser = OptionParser(usage="%prog <dump>", description="Opens a *.pydump file for post-mortem debugging")
-    parser.add_option("--pdb",  action="append_const", const="pdb",  dest="debuggers", help="Use builtin pdb or pdb++")
-    parser.add_option("--pudb", action="append_const", const="pudb", dest="debuggers", help="Use pudb visual debugger")
-    parser.add_option("--ipdb", action="append_const", const="ipdb", dest="debuggers", help="Use ipdb IPython debugger")
-    (options, args) = parser.parse_args()
-
-    if len(args) < 1:
-        parser.error('missing arguments')
-
-    dump = load_dump(args[0])
-    _cache_files(dump['files'])
-    _patch_linecache_checkcache()
-    tb = dump['traceback']
-
-    if not options.debuggers:
-        options.debuggers = ["pdb"]
-
-    for debugger in options.debuggers:
-        try:
-            dbg = __import__(debugger)
-        except ImportError, e:
-            print >>sys.stderr, str(e)
-            continue
-        else:
-            print >>sys.stderr, "Starting %s..." % debugger
-            if debugger == "pudb":
-                dbg.post_mortem((None, None, tb))
-            else:
-                dbg.post_mortem(tb)
-            break

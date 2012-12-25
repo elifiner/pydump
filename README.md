@@ -1,11 +1,13 @@
 Python post-post-mortem debugging
 =================================
 
-Pydump writes the traceback of an exception into a file in a format
-that can later be loaded into a debugger and post-mortem debugged.
+Pydump allows post-mortem debugging for Python programs.
 
-I've tested it with the built-in pdb and with other popular debuggers
-(pudb, ipdb and pdbpp) and it should work with anything reasonable.
+It writes the traceback of an exception into a file and can later load
+it in a Python debugger.
+
+Works with the built-in pdb and with other popular debuggers
+(pudb, ipdb and pdbpp).
 
 Why I wrote this?
 =================
@@ -30,4 +32,3 @@ Future enhancements
 ===================
 
 * Support more depths for local and global variables (right now I only store the repr)
-* ???
