@@ -27,8 +27,7 @@ import pdb
 import pickle
 import linecache
 
-__version__ = "1.0.2"
-__all__ = ['save_dump', 'load_dump', 'debug_dump', '__version__']
+__version__ = "1.1.0"
 
 DUMP_VERSION = 1
 
@@ -37,12 +36,12 @@ def save_dump(filename, tb=None):
     Saves a Python traceback in a pickled file. This function will usually be called from
     an except block to allow post-mortem debugging of a failed process.
 
-    The saved file can be loaded with load_dumpwhich creates a fake traceback
+    The saved file can be loaded with load_dump which creates a fake traceback
     object that can be passed to any reasonable Python debugger.
 
     The simplest way to do that is to run:
 
-       $ pydump.py my_dump_file.pydump
+       $ pydump.py my_dump_file.dump
     """
     if not tb:
         tb = sys.exc_info()[2]
@@ -52,7 +51,10 @@ def save_dump(filename, tb=None):
         'files':_get_traceback_files(fake_tb),
         'dump_version' : DUMP_VERSION
     }
-    pickle.dump(dump, open(filename, 'wb'))
+    try:
+        pickle.dump(dump, open(filename, 'wb'))
+    except:
+        import pdb; pdb.post_mortem()
 
 def load_dump(filename):
     # ugly hack to handle running non-install pydump
@@ -94,15 +96,13 @@ class FakeCode(object):
 class FakeFrame(object):
     def __init__(self, frame):
         self.f_code = FakeCode(frame.f_code)
-        self.f_locals = _flat_dict(frame.f_locals)
-        self.f_globals = _flat_dict(frame.f_globals)
+        self.f_locals = _convert_dict(frame.f_locals)
+        self.f_globals = _convert_dict(frame.f_globals)
         self.f_lineno = frame.f_lineno
         self.f_back = FakeFrame(frame.f_back) if frame.f_back else None
 
-        # add current class memebers
-        if 'self' in frame.f_locals:
-            obj = frame.f_locals['self']
-            self.f_locals['self'] = FakeClass(_safe_repr(obj), _flat_dict(obj.__dict__))
+        if 'self' in self.f_locals:
+            self.f_locals['self'] = _convert_obj(frame.f_locals['self'])
 
 class FakeTraceback(object):
     def __init__(self, traceback):
@@ -127,15 +127,47 @@ def _get_traceback_files(traceback):
 
 def _safe_repr(v):
     try:
-        if isinstance(v, str):
-            return v
-        else:
-            return repr(v)
+        return repr(v)
     except Exception, e:
-        return "error: " + str(e)
+        return "repr error: " + str(e)
 
-def _flat_dict(d):
-    return dict(zip(d.keys(), [_safe_repr(v) for v in d.values()]))
+def _convert_obj(obj):
+    return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
+
+def _convert_dict(v):
+    return dict((_convert(k), _convert(i)) for (k, i) in v.items())
+
+def _convert_seq(v):
+    return (_convert(i) for i in v)
+
+def _convert(v):
+    from datetime import date, time, datetime, timedelta
+
+    BUILTIN = (
+        str, unicode,
+        int, long, float,
+        date, time, datetime, timedelta,
+    )
+
+    if v is None:
+        return v
+
+    if type(v) in BUILTIN:
+        return v
+
+    if type(v) is tuple:
+        return tuple(_convert_seq(v))
+
+    if type(v) is list:
+        return list(_convert_seq(v))
+
+    if type(v) is set:
+        return set(_convert_seq(v))
+
+    if type(v) is dict:
+        return _convert_dict(v)
+
+    return _safe_repr(v)
 
 def _cache_files(files):
     for name, data in files.iteritems():
