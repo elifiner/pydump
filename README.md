@@ -20,11 +20,20 @@ Possible uses
 This project (or approach) might be useful in multiprocessing environments
 running many unattended processes. The most common case for me is on
 production web servers that I can't really stop and debug. For each 
-exception caught, I write a small pydump file and I can debug each
-issue on my own time, on my own box (provided the source is located
-in the same place as on the production box).
+exception caught, I write a dump file and I can debug each issue on 
+my own time, on my own box, even if I don't have the source, since 
+the relevant source is stored in the dump file.
 
-Future enhancements
-===================
+Version History
+===============
 
-* Support more depths for local and global variables
+1.1.0
+-----
+
+* Now storing built-in datatypes and custom class data members
+  instead of their string representations.
+
+1.0.0
+-----
+
+* First public version
