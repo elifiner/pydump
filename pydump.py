@@ -28,6 +28,8 @@ import gzip
 import pickle
 import linecache
 
+import __builtin__
+
 __version__ = "1.1.1"
 
 DUMP_VERSION = 1
@@ -47,6 +49,7 @@ def save_dump(filename, tb=None):
     if not tb:
         tb = sys.exc_info()[2]
     fake_tb = FakeTraceback(tb)
+    _remove_builtins(fake_tb)
     dump = {
         'traceback':fake_tb,
         'files':_get_traceback_files(fake_tb),
@@ -70,6 +73,7 @@ def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
     dump = load_dump(dump_filename)
     _cache_files(dump['files'])
     tb = dump['traceback']
+    _inject_builtins(tb)
     _old_checkcache = linecache.checkcache
     linecache.checkcache = lambda filename=None: None
     post_mortem_func(tb)
@@ -114,6 +118,27 @@ class FakeTraceback(object):
         self.tb_lineno = traceback.tb_lineno
         self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
+
+def _remove_builtins(fake_tb):
+    traceback = fake_tb
+    while traceback:
+        frame = traceback.tb_frame
+        while frame:
+            frame.f_globals = dict(
+                (k,v) for k,v in frame.f_globals.iteritems()
+                if k not in dir(__builtin__)
+            )
+            frame = frame.f_back
+        traceback = traceback.tb_next
+
+def _inject_builtins(fake_tb):
+    traceback = fake_tb
+    while traceback:
+        frame = traceback.tb_frame
+        while frame:
+            frame.f_globals.update(__builtin__.__dict__)
+            frame = frame.f_back
+        traceback = traceback.tb_next
 
 def _get_traceback_files(traceback):
     files = {}
