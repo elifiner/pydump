@@ -146,10 +146,11 @@ def _get_traceback_files(traceback):
         frame = traceback.tb_frame
         while frame:
             filename = os.path.abspath(frame.f_code.co_filename)
-            try:
-                files[filename] = open(filename).read()
-            except IOError:
-                files[filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+            if filename not in files:
+                try:
+                    files[filename] = open(filename).read()
+                except IOError:
+                    files[filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
