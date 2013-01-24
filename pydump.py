@@ -24,10 +24,11 @@ THE SOFTWARE.
 import os
 import sys
 import pdb
+import gzip
 import pickle
 import linecache
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 DUMP_VERSION = 1
 
@@ -51,16 +52,19 @@ def save_dump(filename, tb=None):
         'files':_get_traceback_files(fake_tb),
         'dump_version' : DUMP_VERSION
     }
-    try:
-        pickle.dump(dump, open(filename, 'wb'))
-    except:
-        import pdb; pdb.post_mortem()
+    with gzip.open(filename, 'wb') as f:
+        pickle.dump(dump, f)
 
 def load_dump(filename):
     # ugly hack to handle running non-install pydump
     if 'pydump.pydump' not in sys.modules:
         sys.modules['pydump.pydump'] = sys.modules[__name__]
-    return pickle.load(open(filename, 'rb'))
+    with gzip.open(filename, 'rb') as f:
+        try:
+            return pickle.load(f)
+        except IOError:
+            with open(filename, 'rb') as f:
+                return pickle.load(f)
 
 def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
     dump = load_dump(dump_filename)
