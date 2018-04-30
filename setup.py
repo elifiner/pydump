@@ -30,7 +30,6 @@ setup(
     url='https://github.com/gooli/pydump',
     package_dir={'pydump':'.'},
     packages=['pydump'],
-    scripts=['pydump'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',

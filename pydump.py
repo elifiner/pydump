@@ -28,11 +28,12 @@ import gzip
 import pickle
 import linecache
 
-import __builtin__
+import builtins
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 
 DUMP_VERSION = 1
+
 
 def save_dump(filename, tb=None):
     """
@@ -51,35 +52,46 @@ def save_dump(filename, tb=None):
     fake_tb = FakeTraceback(tb)
     _remove_builtins(fake_tb)
     dump = {
-        'traceback':fake_tb,
-        'files':_get_traceback_files(fake_tb),
-        'dump_version' : DUMP_VERSION
+        "traceback": fake_tb,
+        "files": _get_traceback_files(fake_tb),
+        "dump_version": DUMP_VERSION,
     }
-    with gzip.open(filename, 'wb') as f:
+    with gzip.open(filename, "wb") as f:
         pickle.dump(dump, f)
+
 
 def load_dump(filename):
     # ugly hack to handle running non-install pydump
-    if 'pydump.pydump' not in sys.modules:
-        sys.modules['pydump.pydump'] = sys.modules[__name__]
-    with gzip.open(filename, 'rb') as f:
+    if "pydump.pydump" not in sys.modules:
+        sys.modules["pydump.pydump"] = sys.modules[__name__]
+    with gzip.open(filename, "rb") as f:
         try:
             return pickle.load(f)
         except IOError:
-            with open(filename, 'rb') as f:
+            with open(filename, "rb") as f:
                 return pickle.load(f)
 
+
 def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
+    # monkey patching for pdb's longlist command
+    import inspect, types
+
+    inspect.isframe = lambda obj: isinstance(obj, (types.FrameType, FakeFrame))
+    inspect.iscode = lambda obj: isinstance(obj, (types.CodeType, FakeCode))
+    inspect.isclass = lambda obj: isinstance(obj, (type, FakeClass))
+    inspect.istraceback = lambda obj: isinstance(obj, (types.TracebackType, FakeTraceback))
     dump = load_dump(dump_filename)
-    _cache_files(dump['files'])
-    tb = dump['traceback']
+    _cache_files(dump["files"])
+    tb = dump["traceback"]
     _inject_builtins(tb)
     _old_checkcache = linecache.checkcache
     linecache.checkcache = lambda filename=None: None
     post_mortem_func(tb)
     linecache.checkcache = _old_checkcache
 
+
 class FakeClass(object):
+
     def __init__(self, repr, vars):
         self.__repr = repr
         self.__dict__.update(vars)
@@ -87,21 +99,24 @@ class FakeClass(object):
     def __repr__(self):
         return self.__repr
 
+
 class FakeCode(object):
+
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
         self.co_name = code.co_name
         self.co_argcount = code.co_argcount
         self.co_consts = tuple(
-            FakeCode(c) if hasattr(c, 'co_filename') else c 
-            for c in code.co_consts
+            FakeCode(c) if hasattr(c, "co_filename") else c for c in code.co_consts
         )
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
         self.co_varnames = code.co_varnames
         self.co_flags = code.co_flags
 
+
 class FakeFrame(object):
+
     def __init__(self, frame):
         self.f_code = FakeCode(frame.f_code)
         self.f_locals = _convert_dict(frame.f_locals)
@@ -109,15 +124,18 @@ class FakeFrame(object):
         self.f_lineno = frame.f_lineno
         self.f_back = FakeFrame(frame.f_back) if frame.f_back else None
 
-        if 'self' in self.f_locals:
-            self.f_locals['self'] = _convert_obj(frame.f_locals['self'])
+        if "self" in self.f_locals:
+            self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
+
 
 class FakeTraceback(object):
+
     def __init__(self, traceback):
         self.tb_frame = FakeFrame(traceback.tb_frame)
         self.tb_lineno = traceback.tb_lineno
         self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
+
 
 def _remove_builtins(fake_tb):
     traceback = fake_tb
@@ -125,20 +143,21 @@ def _remove_builtins(fake_tb):
         frame = traceback.tb_frame
         while frame:
             frame.f_globals = dict(
-                (k,v) for k,v in frame.f_globals.iteritems()
-                if k not in dir(__builtin__)
+                (k, v) for k, v in frame.f_globals.items() if k not in dir(__builtins__)
             )
             frame = frame.f_back
         traceback = traceback.tb_next
+
 
 def _inject_builtins(fake_tb):
     traceback = fake_tb
     while traceback:
         frame = traceback.tb_frame
         while frame:
-            frame.f_globals.update(__builtin__.__dict__)
+            frame.f_globals.update(builtins.__dict__)
             frame = frame.f_back
         traceback = traceback.tb_next
+
 
 def _get_traceback_files(traceback):
     files = {}
@@ -150,34 +169,37 @@ def _get_traceback_files(traceback):
                 try:
                     files[filename] = open(filename).read()
                 except IOError:
-                    files[filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                    files[
+                        filename
+                    ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
 
+
 def _safe_repr(v):
     try:
         return repr(v)
-    except Exception, e:
+    except Exception as e:
         return "repr error: " + str(e)
+
 
 def _convert_obj(obj):
     return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
 
+
 def _convert_dict(v):
-    return dict((_convert(k), _convert(i)) for (k, i) in v.items())
+    return dict((_convert(k), _convert(i)) for (k, i) in list(v.items()))
+
 
 def _convert_seq(v):
     return (_convert(i) for i in v)
 
+
 def _convert(v):
     from datetime import date, time, datetime, timedelta
 
-    BUILTIN = (
-        str, unicode,
-        int, long, float,
-        date, time, datetime, timedelta,
-    )
+    BUILTIN = (str, str, int, int, float, date, time, datetime, timedelta)
 
     if v is None:
         return v
@@ -199,7 +221,54 @@ def _convert(v):
 
     return _safe_repr(v)
 
+
 def _cache_files(files):
-    for name, data in files.iteritems():
-        lines = [line+'\n' for line in data.splitlines()]
+    for name, data in files.items():
+        lines = [line + "\n" for line in data.splitlines()]
         linecache.cache[name] = (len(data), None, lines, name)
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="%s v%s: post-mortem debugging for Python programs"
+        % (sys.executable, __version__)
+    )
+    debugger_group = parser.add_mutually_exclusive_group(required=False)
+    debugger_group.add_argument(
+        "--pdb",
+        action="store_const",
+        const="pdb",
+        dest="debugger",
+        help="Use builtin pdb or pdb++",
+    )
+    debugger_group.add_argument(
+        "--pudb",
+        action="store_const",
+        const="pudb",
+        dest="debugger",
+        help="Use pudb visual debugger",
+    )
+    debugger_group.add_argument(
+        "--ipdb",
+        action="store_const",
+        const="ipdb",
+        dest="debugger",
+        help="Use ipdb IPython debugger",
+    )
+    parser.add_argument("filename", help="dumped file")
+    args = parser.parse_args()
+    if not args.debugger:
+        args.debugger = "pdb"
+
+    print("Starting %s..." % args.debugger, file=sys.stderr)
+    dbg = __import__(args.debugger)
+    pm_func = {"pudb": lambda tb: dbg.post_mortem(None, None, tb)}
+    return debug_dump(
+        args.filename, pm_func.get(args.debugger) or dbg.post_mortem
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)
