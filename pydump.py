@@ -28,12 +28,18 @@ import gzip
 import pickle
 import linecache
 
+
 PY2 = (sys.version_info.major == 2)
 
 if PY2:
     import __builtin__ as builtins
 else:
     import builtins
+
+try:
+    import dill
+except ImportError:
+    dill = None
 
 
 __version__ = "1.2.0"
@@ -62,7 +68,10 @@ def save_dump(filename, tb=None):
         "dump_version": DUMP_VERSION,
     }
     with gzip.open(filename, "wb") as f:
-        pickle.dump(dump, f)
+        if dill is not None:
+            dill.dump(dump, f)
+        else:
+            pickle.dump(dump, f)
 
 
 def load_dump(filename):
@@ -70,6 +79,15 @@ def load_dump(filename):
     if "pydump.pydump" not in sys.modules:
         sys.modules["pydump.pydump"] = sys.modules[__name__]
     with gzip.open(filename, "rb") as f:
+        if dill is not None:
+            try:
+                return dill.load(f)
+            except IOError:
+                try:
+                    with open(filename, "rb") as f:
+                        return dill.load(f)
+                except: 
+                    pass  # dill load failed, try pickle instead
         try:
             return pickle.load(f)
         except IOError:
@@ -189,7 +207,10 @@ def _safe_repr(v):
 
 
 def _convert_obj(obj):
-    return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
+    try:
+        return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
+    except:
+        return _convert(obj)
 
 
 def _convert_dict(v):
@@ -201,34 +222,41 @@ def _convert_seq(v):
 
 
 def _convert(v):
-    from datetime import date, time, datetime, timedelta
-
-    if PY2:
-        BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+    if dill is not None:
+        try:
+            dill.dumps(v)
+            return v
+        except:
+            return _safe_repr(v)
     else:
-        BUILTIN = (str, int, float, date, time, datetime, timedelta)
-    # XXX: what about bytes and bytearray?
-
-    if v is None:
-        return v
-
-    if type(v) in BUILTIN:
-        return v
-
-    if type(v) is tuple:
-        return tuple(_convert_seq(v))
-
-    if type(v) is list:
-        return list(_convert_seq(v))
-
-    if type(v) is set:
-        return set(_convert_seq(v))
-
-    if type(v) is dict:
-        return _convert_dict(v)
-
-    return _safe_repr(v)
-
+        from datetime import date, time, datetime, timedelta
+    
+        if PY2:
+            BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+        else:
+            BUILTIN = (str, int, float, date, time, datetime, timedelta)
+        # XXX: what about bytes and bytearray?
+    
+        if v is None:
+            return v
+    
+        if type(v) in BUILTIN:
+            return v
+    
+        if type(v) is tuple:
+            return tuple(_convert_seq(v))
+    
+        if type(v) is list:
+            return list(_convert_seq(v))
+    
+        if type(v) is set:
+            return set(_convert_seq(v))
+    
+        if type(v) is dict:
+            return _convert_dict(v)
+    
+        return _safe_repr(v)
+    
 
 def _cache_files(files):
     for name, data in files.items():
