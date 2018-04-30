@@ -28,10 +28,15 @@ import gzip
 import pickle
 import linecache
 
-import builtins
+PY2 = (sys.version_info.major == 2)
+
+if PY2:
+    import __builtin__ as builtins
+else:
+    import builtins
+
 
 __version__ = "1.2.0"
-
 DUMP_VERSION = 1
 
 
@@ -75,11 +80,10 @@ def load_dump(filename):
 def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
     # monkey patching for pdb's longlist command
     import inspect, types
-
-    inspect.isframe = lambda obj: isinstance(obj, (types.FrameType, FakeFrame))
-    inspect.iscode = lambda obj: isinstance(obj, (types.CodeType, FakeCode))
-    inspect.isclass = lambda obj: isinstance(obj, (type, FakeClass))
-    inspect.istraceback = lambda obj: isinstance(obj, (types.TracebackType, FakeTraceback))
+    inspect.isframe = lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"
+    inspect.iscode = lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"
+    inspect.isclass = lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"
+    inspect.istraceback = lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"
     dump = load_dump(dump_filename)
     _cache_files(dump["files"])
     tb = dump["traceback"]
@@ -127,7 +131,7 @@ class FakeFrame(object):
         if "self" in self.f_locals:
             self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
 
-
+                    
 class FakeTraceback(object):
 
     def __init__(self, traceback):
@@ -143,7 +147,7 @@ def _remove_builtins(fake_tb):
         frame = traceback.tb_frame
         while frame:
             frame.f_globals = dict(
-                (k, v) for k, v in frame.f_globals.items() if k not in dir(__builtins__)
+                (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins)
             )
             frame = frame.f_back
         traceback = traceback.tb_next
@@ -189,7 +193,7 @@ def _convert_obj(obj):
 
 
 def _convert_dict(v):
-    return dict((_convert(k), _convert(i)) for (k, i) in list(v.items()))
+    return dict((_convert(k), _convert(i)) for (k, i) in v.items())
 
 
 def _convert_seq(v):
@@ -199,7 +203,11 @@ def _convert_seq(v):
 def _convert(v):
     from datetime import date, time, datetime, timedelta
 
-    BUILTIN = (str, str, int, int, float, date, time, datetime, timedelta)
+    if PY2:
+        BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+    else:
+        BUILTIN = (str, int, float, date, time, datetime, timedelta)
+    # XXX: what about bytes and bytearray?
 
     if v is None:
         return v
@@ -264,9 +272,8 @@ def main():
 
     print("Starting %s..." % args.debugger, file=sys.stderr)
     dbg = __import__(args.debugger)
-    pm_func = {"pudb": lambda tb: dbg.post_mortem(None, None, tb)}
     return debug_dump(
-        args.filename, pm_func.get(args.debugger) or dbg.post_mortem
+        args.filename, dbg.post_mortem
     )
 
 
