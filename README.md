@@ -27,6 +27,10 @@ the relevant source is stored in the dump file.
 Version History
 ===============
 
+1.2.0
+-----
+* Port to Python 3
+
 1.1.1
 -----
 * Fixed a few small bugs.
