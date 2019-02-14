@@ -25,8 +25,11 @@ import os
 import sys
 import pdb
 import gzip
-import pickle
 import linecache
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 
 PY2 = (sys.version_info.major == 2)
@@ -71,7 +74,7 @@ def save_dump(filename, tb=None):
         if dill is not None:
             dill.dump(dump, f)
         else:
-            pickle.dump(dump, f)
+            pickle.dump(dump, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def load_dump(filename):
