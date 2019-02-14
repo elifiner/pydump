@@ -296,6 +296,20 @@ def main():
         dest="debugger",
         help="Use ipdb IPython debugger",
     )
+    debugger_group.add_argument(
+        "--wdb",
+        action="store_const",
+        const="wdb",
+        dest="debugger",
+        help="Use wdb debugger",
+    )
+    debugger_group.add_argument(
+        "--web_pdb",
+        action="store_const",
+        const="web_pdb",
+        dest="debugger",
+        help="Use web_pdb debugger",
+    )
     parser.add_argument("filename", help="dumped file")
     args = parser.parse_args()
     if not args.debugger:
