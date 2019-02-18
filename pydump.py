@@ -227,7 +227,7 @@ def _convert_seq(v):
 def _convert(v):
     if dill is not None:
         try:
-            dill.dumps(v)
+            dill.loads(dill.dumps(v))
             return v
         except:
             return _safe_repr(v)
