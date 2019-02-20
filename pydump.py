@@ -26,6 +26,7 @@ import sys
 import pdb
 import gzip
 import linecache
+import contextlib
 try:
     import cPickle as pickle
 except ImportError:
@@ -89,7 +90,7 @@ def load_dump(filename):
                 try:
                     with open(filename, "rb") as f:
                         return dill.load(f)
-                except: 
+                except:
                     pass  # dill load failed, try pickle instead
         try:
             return pickle.load(f)
@@ -99,20 +100,30 @@ def load_dump(filename):
 
 
 def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
-    # monkey patching for pdb's longlist command
-    import inspect, types
-    inspect.isframe = lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"
-    inspect.iscode = lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"
-    inspect.isclass = lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"
-    inspect.istraceback = lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"
     dump = load_dump(dump_filename)
     _cache_files(dump["files"])
     tb = dump["traceback"]
     _inject_builtins(tb)
-    _old_checkcache = linecache.checkcache
-    linecache.checkcache = lambda filename=None: None
-    post_mortem_func(tb)
-    linecache.checkcache = _old_checkcache
+    # monkey patching for pdb's longlist command
+    import inspect, types
+    with patch(
+        (inspect, "isframe", lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"),
+        (inspect, "iscode", lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"),
+        (inspect, "isclass", lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"),
+        (inspect, "istraceback", lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"),
+        (linecache, "checkcache", lambda filename=None: None)):
+        post_mortem_func(tb)
+
+@contextlib.contextmanager
+def patch(*attrs):
+    originals = [getattr(obj, attr) for obj, attr, _ in attrs]
+    for obj, attr, func in attrs:
+        setattr(obj, attr, func)
+    try:
+        yield
+    finally:
+        for (obj, attr, _), func in zip(attrs, originals):
+            setattr(obj, attr, func)
 
 
 class FakeClass(object):
@@ -152,7 +163,7 @@ class FakeFrame(object):
         if "self" in self.f_locals:
             self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
 
-                    
+
 class FakeTraceback(object):
 
     def __init__(self, traceback):
@@ -233,33 +244,33 @@ def _convert(v):
             return _safe_repr(v)
     else:
         from datetime import date, time, datetime, timedelta
-    
+
         if PY2:
             BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
         else:
             BUILTIN = (str, int, float, date, time, datetime, timedelta)
         # XXX: what about bytes and bytearray?
-    
+
         if v is None:
             return v
-    
+
         if type(v) in BUILTIN:
             return v
-    
+
         if type(v) is tuple:
             return tuple(_convert_seq(v))
-    
+
         if type(v) is list:
             return list(_convert_seq(v))
-    
+
         if type(v) is set:
             return set(_convert_seq(v))
-    
+
         if type(v) is dict:
             return _convert_dict(v)
-    
+
         return _safe_repr(v)
-    
+
 
 def _cache_files(files):
     for name, data in files.items():
