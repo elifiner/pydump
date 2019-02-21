@@ -331,11 +331,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import os.path
-    path = os.path.join(os.path.dirname(__file__), "dump3.dump")
-    try:
-        print(nothing)
-    except:
-        save_dump(path)
-        debug_dump(path)
-    # sys.exit(main() or 0)
+    sys.exit(main() or 0)
