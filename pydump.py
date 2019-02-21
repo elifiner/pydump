@@ -163,7 +163,7 @@ class FakeFrameType(Base):
 
 class FakeTracebackType(Base):
 
-    def __init__(self, traceback, restored=False):
+    def __init__(self, traceback):
         self.tb_frame = FakeFrameType(traceback.tb_frame)
         self.tb_lineno = traceback.tb_lineno
         self.tb_next = FakeTracebackType(traceback.tb_next) if traceback.tb_next else None
