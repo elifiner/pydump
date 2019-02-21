@@ -25,8 +25,8 @@ import os
 import sys
 import pdb
 import gzip
+import types
 import linecache
-import contextlib
 try:
     import cPickle as pickle
 except ImportError:
@@ -64,7 +64,7 @@ def save_dump(filename, tb=None):
     """
     if not tb:
         tb = sys.exc_info()[2]
-    fake_tb = FakeTraceback(tb)
+    fake_tb = FakeTracebackType(tb)
     _remove_builtins(fake_tb)
     dump = {
         "traceback": fake_tb,
@@ -105,28 +105,25 @@ def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
     tb = dump["traceback"]
     _inject_builtins(tb)
     # monkey patching for pdb's longlist command
-    import inspect, types
-    with patch(
-        (inspect, "isframe", lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"),
-        (inspect, "iscode", lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"),
-        (inspect, "isclass", lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"),
-        (inspect, "istraceback", lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"),
-        (linecache, "checkcache", lambda filename=None: None)):
-        post_mortem_func(tb)
-
-@contextlib.contextmanager
-def patch(*attrs):
-    originals = [getattr(obj, attr) for obj, attr, _ in attrs]
-    for obj, attr, func in attrs:
-        setattr(obj, attr, func)
+    import inspect
+    cache, linecache.checkcache = linecache.checkcache, lambda _=None: None
     try:
-        yield
+        post_mortem_func(tb)
     finally:
-        for (obj, attr, _), func in zip(attrs, originals):
-            setattr(obj, attr, func)
+        linecache.checkcache = cache
+
+class Base(object):
+
+    @property
+    def __class__(self):
+        return self.__dict__.get("fake_class") or type(self)
+
+    def __setstate__(self, state):
+        state["fake_class"] = getattr(types, type(self).__name__.replace("Fake", ""), type)
+        self.__dict__ = state
 
 
-class FakeClass(object):
+class FakeType(Base):
 
     def __init__(self, repr, vars):
         self.__repr = repr
@@ -136,14 +133,14 @@ class FakeClass(object):
         return self.__repr
 
 
-class FakeCode(object):
+class FakeCodeType(Base):
 
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
         self.co_name = code.co_name
         self.co_argcount = code.co_argcount
         self.co_consts = tuple(
-            FakeCode(c) if hasattr(c, "co_filename") else c for c in code.co_consts
+            FakeCodeType(c) if hasattr(c, "co_filename") else c for c in code.co_consts
         )
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
@@ -151,25 +148,25 @@ class FakeCode(object):
         self.co_flags = code.co_flags
 
 
-class FakeFrame(object):
+class FakeFrameType(Base):
 
     def __init__(self, frame):
-        self.f_code = FakeCode(frame.f_code)
+        self.f_code = FakeCodeType(frame.f_code)
         self.f_locals = _convert_dict(frame.f_locals)
         self.f_globals = _convert_dict(frame.f_globals)
         self.f_lineno = frame.f_lineno
-        self.f_back = FakeFrame(frame.f_back) if frame.f_back else None
+        self.f_back = FakeFrameType(frame.f_back) if frame.f_back else None
 
         if "self" in self.f_locals:
             self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
 
 
-class FakeTraceback(object):
+class FakeTracebackType(Base):
 
-    def __init__(self, traceback):
-        self.tb_frame = FakeFrame(traceback.tb_frame)
+    def __init__(self, traceback, restored=False):
+        self.tb_frame = FakeFrameType(traceback.tb_frame)
         self.tb_lineno = traceback.tb_lineno
-        self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
+        self.tb_next = FakeTracebackType(traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
 
 
@@ -222,7 +219,7 @@ def _safe_repr(v):
 
 def _convert_obj(obj):
     try:
-        return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
+        return FakeType(_safe_repr(obj), _convert_dict(obj.__dict__))
     except:
         return _convert(obj)
 
@@ -334,4 +331,11 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    import os.path
+    path = os.path.join(os.path.dirname(__file__), "dump3.dump")
+    try:
+        print(nothing)
+    except:
+        save_dump(path)
+        debug_dump(path)
+    # sys.exit(main() or 0)
