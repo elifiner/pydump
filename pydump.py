@@ -23,15 +23,13 @@ THE SOFTWARE.
 from __future__ import print_function
 import os
 import sys
-import pdb
-import gzip
 import types
-import linecache
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
+__version__ = "2.0.0"
 
 PY2 = (sys.version_info.major == 2)
 
@@ -40,90 +38,25 @@ if PY2:
 else:
     import builtins
 
-try:
-    import dill
-except ImportError:
-    dill = None
 
+class Fake(object):
+    """ Fake a different class when unpickled """
 
-__version__ = "1.2.0"
-DUMP_VERSION = 1
-
-
-def save_dump(filename, tb=None):
-    """
-    Saves a Python traceback in a pickled file. This function will usually be called from
-    an except block to allow post-mortem debugging of a failed process.
-
-    The saved file can be loaded with load_dump which creates a fake traceback
-    object that can be passed to any reasonable Python debugger.
-
-    The simplest way to do that is to run:
-
-       $ pydump.py my_dump_file.dump
-    """
-    if not tb:
-        tb = sys.exc_info()[2]
-    fake_tb = FakeTracebackType(tb)
-    _remove_builtins(fake_tb)
-    dump = {
-        "traceback": fake_tb,
-        "files": _get_traceback_files(fake_tb),
-        "dump_version": DUMP_VERSION,
-    }
-    with gzip.open(filename, "wb") as f:
-        if dill is not None:
-            dill.dump(dump, f)
-        else:
-            pickle.dump(dump, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def load_dump(filename):
-    # ugly hack to handle running non-install pydump
-    if "pydump.pydump" not in sys.modules:
-        sys.modules["pydump.pydump"] = sys.modules[__name__]
-    with gzip.open(filename, "rb") as f:
-        if dill is not None:
-            try:
-                return dill.load(f)
-            except IOError:
-                try:
-                    with open(filename, "rb") as f:
-                        return dill.load(f)
-                except:
-                    pass  # dill load failed, try pickle instead
-        try:
-            return pickle.load(f)
-        except IOError:
-            with open(filename, "rb") as f:
-                return pickle.load(f)
-
-
-def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
-    dump = load_dump(dump_filename)
-    _cache_files(dump["files"])
-    tb = dump["traceback"]
-    _inject_builtins(tb)
-    # monkey patching for pdb's longlist command
-    import inspect
-    cache, linecache.checkcache = linecache.checkcache, lambda _=None: None
-    try:
-        post_mortem_func(tb)
-    finally:
-        linecache.checkcache = cache
-
-class Base(object):
+    mock = NotImplemented
 
     @property
     def __class__(self):
-        return self.__dict__.get("fake_class") or type(self)
+        return self.__dict__.get("__mock__") or type(self)
 
     def __setstate__(self, state):
-        state["fake_class"] = getattr(types, type(self).__name__.replace("Fake", ""), type)
+        mod, cls = self.mock
+        state["__mock__"] = getattr(__import__(mod, fromlist=[""]), cls) if mod else globals().get(cls)
         self.__dict__ = state
 
 
-class FakeType(Base):
+class FakeClass(Fake):
+
+    mock = ("", "type")
 
     def __init__(self, repr, vars):
         self.__repr = repr
@@ -133,14 +66,16 @@ class FakeType(Base):
         return self.__repr
 
 
-class FakeCodeType(Base):
+class FakeCode(Fake):
+
+    mock = ("types", "CodeType")
 
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
         self.co_name = code.co_name
         self.co_argcount = code.co_argcount
         self.co_consts = tuple(
-            FakeCodeType(c) if hasattr(c, "co_filename") else c for c in code.co_consts
+            FakeCode(c) if hasattr(c, "co_filename") else c for c in code.co_consts
         )
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
@@ -148,131 +83,174 @@ class FakeCodeType(Base):
         self.co_flags = code.co_flags
 
 
-class FakeFrameType(Base):
+class FakeFrame(Fake):
 
-    def __init__(self, frame):
-        self.f_code = FakeCodeType(frame.f_code)
-        self.f_locals = _convert_dict(frame.f_locals)
-        self.f_globals = _convert_dict(frame.f_globals)
+    mock = ("types", "FrameType")
+
+    def __init__(self, frame, cleaner):
+        self.f_code = FakeCode(frame.f_code)
+        self.f_locals = cleaner.dict(frame.f_locals)
+        self.f_globals = cleaner.dict(frame.f_globals)
         self.f_lineno = frame.f_lineno
-        self.f_back = FakeFrameType(frame.f_back) if frame.f_back else None
+        self.f_back = FakeFrame(frame.f_back, cleaner) if frame.f_back else None
 
         if "self" in self.f_locals:
-            self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
+            self.f_locals["self"] = cleaner.obj(frame.f_locals["self"])
 
 
-class FakeTracebackType(Base):
+class FakeTraceback(Fake):
 
-    def __init__(self, traceback):
-        self.tb_frame = FakeFrameType(traceback.tb_frame)
+    mock = ("types", "TracebackType")
+
+    def __init__(self, traceback, cleaner):
+        self.tb_frame = FakeFrame(traceback.tb_frame, cleaner)
         self.tb_lineno = traceback.tb_lineno
-        self.tb_next = FakeTracebackType(traceback.tb_next) if traceback.tb_next else None
+        self.tb_next = FakeTraceback(traceback.tb_next, cleaner) if traceback.tb_next else None
         self.tb_lasti = 0
 
 
-def _remove_builtins(fake_tb):
-    traceback = fake_tb
-    while traceback:
-        frame = traceback.tb_frame
-        while frame:
-            frame.f_globals = dict(
-                (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins)
-            )
-            frame = frame.f_back
-        traceback = traceback.tb_next
+class Traceback(FakeTraceback):
+    """
+    The root of the traceback. Main entry point.
+    Perform some extra steps to contain traceback essential additional info.
 
-
-def _inject_builtins(fake_tb):
-    traceback = fake_tb
-    while traceback:
-        frame = traceback.tb_frame
-        while frame:
-            frame.f_globals.update(builtins.__dict__)
-            frame = frame.f_back
-        traceback = traceback.tb_next
-
-
-def _get_traceback_files(traceback):
-    files = {}
-    while traceback:
-        frame = traceback.tb_frame
-        while frame:
-            filename = os.path.abspath(frame.f_code.co_filename)
-            if filename not in files:
-                try:
-                    files[filename] = open(filename).read()
-                except IOError:
-                    files[
-                        filename
-                    ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
-            frame = frame.f_back
-        traceback = traceback.tb_next
-    return files
-
-
-def _safe_repr(v):
-    try:
-        return repr(v)
-    except Exception as e:
-        return "repr error: " + str(e)
-
-
-def _convert_obj(obj):
-    try:
-        return FakeType(_safe_repr(obj), _convert_dict(obj.__dict__))
-    except:
-        return _convert(obj)
-
-
-def _convert_dict(v):
-    return dict((_convert(k), _convert(i)) for (k, i) in v.items())
-
-
-def _convert_seq(v):
-    return (_convert(i) for i in v)
-
-
-def _convert(v):
-    if dill is not None:
+    Example usage:
         try:
-            dill.loads(dill.dumps(v))
-            return v
+            raise SomeError()
+        except Exception:
+            trace = Traceback()
+            with open(filepath) as f:
+                pickle.dump(trace, f)
+
+        ~~~~~~ some time later ~~~~~~
+
+        with open(filepath) as f:
+            trace = pickle.load(f)
+            pdb.post_mortem(trace)
+    """
+
+    def __init__(self, traceback=None, pickler=pickle, full=False):
+        """ Walk through the traceback and sanitize non-pickleable things """
+        if not traceback: # If no traceback given, get recent exception
+            traceback = sys.exc_info()[2]
+        cleaner = Clean(pickler, full)
+        super(Traceback, self).__init__(traceback, cleaner)
+        self._remove_builtins() # Clean up unneeded info
+        self.files = self._get_traceback_files() # Collect a record of the files at their current state
+
+    def __setstate__(self, state):
+        """
+        Restore traceback.
+        Also apply some utility functionality to make it usable for immediate post mortem
+        """
+        super(Traceback, self).__setstate__(state)
+        self._inject_builtins()
+        self._cache_files()
+
+    def _remove_builtins(traceback):
+        while traceback:
+            frame = traceback.tb_frame
+            while frame:
+                frame.f_globals = dict(
+                    (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins)
+                )
+                frame = frame.f_back
+            traceback = traceback.tb_next
+
+    def _inject_builtins(traceback):
+        while traceback:
+            frame = traceback.tb_frame
+            while frame:
+                frame.f_globals.update(builtins.__dict__)
+                frame = frame.f_back
+            traceback = traceback.tb_next
+
+    def _get_traceback_files(traceback):
+        files = {}
+        while traceback:
+            frame = traceback.tb_frame
+            while frame:
+                filename = os.path.abspath(frame.f_code.co_filename)
+                if filename not in files:
+                    try:
+                        files[filename] = open(filename).read()
+                    except IOError:
+                        files[
+                            filename
+                        ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                frame = frame.f_back
+            traceback = traceback.tb_next
+        return files
+
+    def _cache_files(self):
+        """ Add files to the debuggers cache, recorded at the time of pickle """
+        import linecache
+        for name, data in self.files.items():
+            lines = [line + "\n" for line in data.splitlines()]
+            linecache.cache[name] = (len(data), None, lines, name)
+
+
+class Clean(object):
+
+    def __init__(self, pickler, full=False):
+        self.pickler = pickler
+        self.full = full # Attempt to pickle as much as possible.
+        # This requires that objects exist in the environment when unpickling
+
+    @staticmethod
+    def repr(obj):
+        try:
+            return repr(obj)
+        except Exception as err:
+            return "[repr error]: " + str(err)
+
+    def obj(self, obj):
+        try:
+            return FakeClass(self.repr(obj), self.dict(obj.__dict__))
         except:
-            return _safe_repr(v)
-    else:
+            return self(obj)
+
+    def dict(self, obj):
+        return dict((self(k), self(v)) for k, v in obj.items())
+
+    def seq(self, obj):
+        return (self(i) for i in obj)
+
+    def __call__(self, obj):
+
         from datetime import date, time, datetime, timedelta
 
         if PY2:
-            BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+            BUILTIN = (types.NoneType, str, unicode, int, long, float, date, time, datetime, timedelta)
         else:
-            BUILTIN = (str, int, float, date, time, datetime, timedelta)
+            BUILTIN = (types.NoneType, str, int, float, date, time, datetime, timedelta)
         # XXX: what about bytes and bytearray?
 
-        if v is None:
-            return v
+        # Standard built in pickle types...
+        obj_type = type(obj)
+        if obj_type in BUILTIN:
+            return obj
 
-        if type(v) in BUILTIN:
-            return v
+        if obj_type is tuple:
+            return tuple(self.seq(obj))
 
-        if type(v) is tuple:
-            return tuple(_convert_seq(v))
+        if obj_type is list:
+            return list(self.seq(obj))
 
-        if type(v) is list:
-            return list(_convert_seq(v))
+        if obj_type is set:
+            return set(self.seq(obj))
 
-        if type(v) is set:
-            return set(_convert_seq(v))
+        if obj_type is dict:
+            return self.dict(obj)
 
-        if type(v) is dict:
-            return _convert_dict(v)
-
-        return _safe_repr(v)
-
-
-def _cache_files(files):
-    for name, data in files.items():
-        lines = [line + "\n" for line in data.splitlines()]
-        linecache.cache[name] = (len(data), None, lines, name)
+        # We are out of standard types. If we are pickling everything attempt to pickle this.
+        if self.full:
+            try:
+                self.pickler.loads(self.pickler.dumps(obj))
+                return obj
+            except Exception:
+                return self.repr(obj)
+        return self.repr(obj)
 
 
 def main():
@@ -324,11 +302,10 @@ def main():
         args.debugger = "pdb"
 
     print("Starting %s..." % args.debugger, file=sys.stderr)
-    dbg = __import__(args.debugger)
-    return debug_dump(
-        args.filename, dbg.post_mortem
-    )
-
+    dbg = __import__(args.debugger, fromlist=[""])
+    with open(args.filename, "rb") as f:
+        trace = pickle.load(f)
+        dbg.post_mortem(trace)
 
 if __name__ == "__main__":
     sys.exit(main() or 0)
