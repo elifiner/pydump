@@ -191,6 +191,7 @@ class Traceback(FakeTraceback):
 
 
 class Clean(object):
+    """ Sanitize and copy the data in the traceback to ensure a reliable pickle/unpickle """
 
     def __init__(self, pickler, full):
         self.pickler = pickler
@@ -217,7 +218,6 @@ class Clean(object):
         return (self(i) for i in obj)
 
     def __call__(self, obj):
-
         from datetime import date, time, datetime, timedelta
 
         if PY2:
@@ -249,7 +249,7 @@ class Clean(object):
                 self.pickler.loads(self.pickler.dumps(obj))
                 return obj
             except Exception:
-                return self.repr(obj)
+                pass
         return self.repr(obj)
 
 
