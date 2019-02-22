@@ -32,13 +32,14 @@ except ImportError:
 
 
 BUILTIN = set((str, int, float, bytes, bytearray,
-               types.NoneType,
+               type(None),
                datetime.date, datetime.time, datetime.datetime, datetime.timedelta))
 try:
     import __builtin__ as builtins
     BUILTIN.add(unicode)
     BUILTIN.add(long)
 except ImportError:
+    print("ERROR")
     import builtins
 
 
@@ -140,7 +141,7 @@ class Traceback(FakeTraceback):
             traceback = sys.exc_info()[2]
         cleaner = Cleaner(pickler, full)
         super(Traceback, self).__init__(traceback, cleaner)
-        self._remove_builtins() # Clean up unneeded info
+        self._remove_builtins()
         self.files = self._snapshot_source_files() # Snapshot source files
 
     def __setstate__(self, state):
@@ -149,7 +150,7 @@ class Traceback(FakeTraceback):
         Also apply some utility functionality to make it usable for immediate post mortem
         """
         super(Traceback, self).__setstate__(state)
-        self._inject_builtins()
+        self._restore_builtins()
         self._load_source_files()
 
     def _remove_builtins(traceback):
@@ -157,16 +158,15 @@ class Traceback(FakeTraceback):
             frame = traceback.tb_frame
             while frame:
                 frame.f_globals = dict(
-                    (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins)
-                )
+                    (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins))
                 frame = frame.f_back
             traceback = traceback.tb_next
 
-    def _inject_builtins(traceback):
+    def _restore_builtins(traceback):
         while traceback:
             frame = traceback.tb_frame
             while frame:
-                frame.f_globals.update(builtins.__dict__)
+                frame.f_globals["__builtins__"] = builtins
                 frame = frame.f_back
             traceback = traceback.tb_next
 
