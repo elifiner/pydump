@@ -141,7 +141,7 @@ class Traceback(FakeTraceback):
             traceback = sys.exc_info()[2]
         cleaner = Cleaner(pickler, full)
         super(Traceback, self).__init__(traceback, cleaner)
-        self._remove_builtins()
+        # self._remove_builtins()
         self.files = self._snapshot_source_files() # Snapshot source files
 
     def __setstate__(self, state):
