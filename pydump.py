@@ -192,7 +192,7 @@ class Traceback(FakeTraceback):
 
 class Clean(object):
 
-    def __init__(self, pickler, full=False):
+    def __init__(self, pickler, full):
         self.pickler = pickler
         self.full = full # Attempt to pickle as much as possible.
         # This requires that objects exist in the environment when unpickling
