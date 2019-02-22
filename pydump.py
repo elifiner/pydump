@@ -39,7 +39,6 @@ try:
     BUILTIN.add(unicode)
     BUILTIN.add(long)
 except ImportError:
-    print("ERROR")
     import builtins
 
 
