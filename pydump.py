@@ -49,14 +49,13 @@ class Fake(object):
         return self.__dict__.get("__mock__") or type(self)
 
     def __setstate__(self, state):
-        mod, cls = self.mock
-        state["__mock__"] = getattr(__import__(mod, fromlist=[""]), cls) if mod else globals().get(cls)
+        state["__mock__"] = self.mock
         self.__dict__ = state
 
 
 class FakeClass(Fake):
 
-    mock = ("", "type")
+    mock = type
 
     def __init__(self, repr, vars):
         self.__repr = repr
@@ -68,7 +67,7 @@ class FakeClass(Fake):
 
 class FakeCode(Fake):
 
-    mock = ("types", "CodeType")
+    mock = types.CodeType
 
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
@@ -85,7 +84,7 @@ class FakeCode(Fake):
 
 class FakeFrame(Fake):
 
-    mock = ("types", "FrameType")
+    mock = types.FrameType
 
     def __init__(self, frame, cleaner):
         self.f_code = FakeCode(frame.f_code)
@@ -100,7 +99,7 @@ class FakeFrame(Fake):
 
 class FakeTraceback(Fake):
 
-    mock = ("types", "TracebackType")
+    mock = types.TracebackType
 
     def __init__(self, traceback, cleaner):
         self.tb_frame = FakeFrame(traceback.tb_frame, cleaner)
