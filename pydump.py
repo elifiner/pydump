@@ -24,19 +24,25 @@ from __future__ import print_function
 import os
 import sys
 import types
+import datetime
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
-__version__ = "2.0.0"
 
-PY2 = (sys.version_info.major == 2)
-
-if PY2:
+BUILTIN = set((str, int, float, bytes, bytearray,
+               types.NoneType,
+               datetime.date, datetime.time, datetime.datetime, datetime.timedelta))
+try:
     import __builtin__ as builtins
-else:
+    BUILTIN.add(unicode)
+    BUILTIN.add(long)
+except ImportError:
     import builtins
+
+
+__version__ = "2.0.0"
 
 
 class Fake(object):
@@ -132,10 +138,10 @@ class Traceback(FakeTraceback):
         """ Walk through the traceback and sanitize non-pickleable things """
         if not traceback: # If no traceback given, get recent exception
             traceback = sys.exc_info()[2]
-        cleaner = Clean(pickler, full)
+        cleaner = Cleaner(pickler, full)
         super(Traceback, self).__init__(traceback, cleaner)
         self._remove_builtins() # Clean up unneeded info
-        self.files = self._get_traceback_files() # Collect a record of the files at their current state
+        self.files = self._snapshot_source_files() # Snapshot source files
 
     def __setstate__(self, state):
         """
@@ -144,7 +150,7 @@ class Traceback(FakeTraceback):
         """
         super(Traceback, self).__setstate__(state)
         self._inject_builtins()
-        self._cache_files()
+        self._load_source_files()
 
     def _remove_builtins(traceback):
         while traceback:
@@ -164,7 +170,7 @@ class Traceback(FakeTraceback):
                 frame = frame.f_back
             traceback = traceback.tb_next
 
-    def _get_traceback_files(traceback):
+    def _snapshot_source_files(traceback):
         files = {}
         while traceback:
             frame = traceback.tb_frame
@@ -181,7 +187,7 @@ class Traceback(FakeTraceback):
             traceback = traceback.tb_next
         return files
 
-    def _cache_files(self):
+    def _load_source_files(self):
         """ Add files to the debuggers cache, recorded at the time of pickle """
         import linecache
         for name, data in self.files.items():
@@ -189,7 +195,7 @@ class Traceback(FakeTraceback):
             linecache.cache[name] = (len(data), None, lines, name)
 
 
-class Clean(object):
+class Cleaner(object):
     """ Sanitize and copy the data in the traceback to ensure a reliable pickle/unpickle """
 
     def __init__(self, pickler, full):
@@ -217,19 +223,12 @@ class Clean(object):
         return (self(i) for i in obj)
 
     def __call__(self, obj):
-        from datetime import date, time, datetime, timedelta
-
-        if PY2:
-            BUILTIN = (types.NoneType, str, unicode, int, long, float, date, time, datetime, timedelta)
-        else:
-            BUILTIN = (types.NoneType, str, int, float, date, time, datetime, timedelta)
-        # XXX: what about bytes and bytearray?
-
-        # Standard built in pickle types...
+        # Standard built in types. Safe.
         obj_type = type(obj)
         if obj_type in BUILTIN:
             return obj
 
+        # Standard container types
         if obj_type is tuple:
             return tuple(self.seq(obj))
 
@@ -242,7 +241,9 @@ class Clean(object):
         if obj_type is dict:
             return self.dict(obj)
 
-        # We are out of standard types. If we are pickling everything attempt to pickle this.
+        # We have something else. This may require an import on unpickle.
+        # If we are pickling everything attempt to pickle this.
+        # Otherwise we can play it safe and only keep a representation.
         if self.full:
             try:
                 self.pickler.loads(self.pickler.dumps(obj))
