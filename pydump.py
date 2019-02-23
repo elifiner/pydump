@@ -44,6 +44,7 @@ except ImportError:
 
 
 __version__ = "2.0.0"
+__all__ = ["Traceback"]
 
 
 class Fake(object):
