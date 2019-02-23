@@ -34,7 +34,7 @@ except ImportError:
 BUILTIN_TYPES = set((str, int, float, bytes, bytearray,
                type(None),
                datetime.date, datetime.time, datetime.datetime, datetime.timedelta))
-SEQUENCE_TYPES = (set, list, tuple)
+SEQUENCE_TYPES = set((set, list, tuple))
 try:
     import __builtin__ as builtins
     BUILTIN_TYPES.add(unicode)
