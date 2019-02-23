@@ -140,7 +140,6 @@ class Traceback(FakeTraceback):
             traceback = sys.exc_info()[2]
         cleaner = Cleaner(pickler, full)
         super(Traceback, self).__init__(traceback, cleaner)
-        # self._remove_builtins()
         self.files = self._snapshot_source_files() # Snapshot source files
 
     def __setstate__(self, state):
@@ -151,15 +150,6 @@ class Traceback(FakeTraceback):
         super(Traceback, self).__setstate__(state)
         self._restore_builtins()
         self._load_source_files()
-
-    def _remove_builtins(traceback):
-        while traceback:
-            frame = traceback.tb_frame
-            while frame:
-                frame.f_globals = dict(
-                    (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins))
-                frame = frame.f_back
-            traceback = traceback.tb_next
 
     def _restore_builtins(traceback):
         while traceback:
