@@ -31,13 +31,14 @@ except ImportError:
     import pickle
 
 
-BUILTIN = set((str, int, float, bytes, bytearray,
+BUILTIN_TYPES = set((str, int, float, bytes, bytearray,
                type(None),
                datetime.date, datetime.time, datetime.datetime, datetime.timedelta))
+SEQUENCE_TYPES = (set, list, tuple)
 try:
     import __builtin__ as builtins
-    BUILTIN.add(unicode)
-    BUILTIN.add(long)
+    BUILTIN_TYPES.add(unicode)
+    BUILTIN_TYPES.add(long)
 except ImportError:
     import builtins
 
@@ -214,21 +215,16 @@ class Cleaner(object):
     def __call__(self, obj):
         # Standard built in types. Safe.
         obj_type = type(obj)
-        if obj_type in BUILTIN:
+        if obj_type in BUILTIN_TYPES:
             return obj
 
         # Standard container types
-        if obj_type is tuple:
-            return tuple(self.seq(obj))
-
-        if obj_type is list:
-            return list(self.seq(obj))
-
-        if obj_type is set:
-            return set(self.seq(obj))
+        if obj_type in SEQUENCE_TYPES:
+            return obj_type(self.seq(obj))
 
         if obj_type is dict:
             return self.dict(obj)
+
 
         # We have something else. This may require an import on unpickle.
         # If we are pickling everything attempt to pickle this.
