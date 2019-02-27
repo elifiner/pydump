@@ -1,297 +1,196 @@
-"""
-The MIT License (MIT)
-Copyright (C) 2012 Eli Finer <eli.finer@gmail.com>
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-"""
 from __future__ import print_function
+
 import os
-import sys
 import types
-import datetime
+import pickle
+import marshal
 try:
-    import cPickle as pickle
+    import copy_reg as copyreg
+    STD_TYPES = pickle.Pickler.dispatch.keys()
 except ImportError:
-    import pickle
+    import copyreg
+    STD_TYPES = pickle._Pickler.dispatch.keys()
+
+SEQ_TYPES = (list, tuple, set)
+FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType, types.BuiltinMethodType)
+
+class _call(object):
+    """ Basic building block in pickle """
+    def __reduce__(self):
+        return self.func, self.args
+    def __init__(self, func, *args):
+        self.__dict__.update(locals())
+    def __call__(self):
+        self.func(*(arg() if isinstance(arg, Call) else arg for arg in self.args))
+
+class _import(_call):
+    def __init__(self, name):
+        super(_import, self).__init__(__import__, name, [""])
+
+class _from_import(_call):
+    def __init__(self, module, name):
+        super(_from_import, self).__init__(getattr, _import(module), name)
+
+class _class(_call):
+    def __init__(self, name, inherits=(object,), dct=None):
+        super(_class, self).__init__(type, name, inherits, dct or {})
+
+def _savePickle(func):
+    """ Save function directly in pickle """
+    typeMap = {types.FunctionType: "FunctionType", types.LambdaType: "LambdaType"}
+    funcType = typeMap.get(type(func))
+    FunctionType = _from_import("types", funcType)
+    code = _call(marshal.loads, marshal.dumps(func.__code__))
+    scoped_call = type(func.__name__, (_call, ), {"__call__": lambda _, *a, **k: func(*a, **k)})
+    return scoped_call(FunctionType, code, {"__builtins__": _import("__builtin__")})
+
+_mock = _class("mock", dct={
+    "__init__": _savePickle(lambda s, d: s.__dict__.update(d)),
+    "__class__": _savePickle(lambda s: s.mock), # pretend to be this
+    "__repr__": _savePickle(lambda s: s.repr)}) # and look like this
+
+def _prepare_traceback(trace):
+    """ Prep traceback for pickling """
+    files = _snapshot_source_files(trace) # Take a snapshot of all the source files
+    trace = _clean(trace) # Make traceback pickle friendly
+    return _restore_traceback, (trace, files)
+
+@_savePickle
+def _restore_traceback(trace, files):
+    """ Restore traceback from pickle """
+    import linecache # Add source files to linecache for debugger to see them.
+    for name, data in files.items():
+        lines = [line + "\n" for line in data.splitlines()]
+        linecache.cache[name] = (len(data), None, lines, name)
+    return trace
+
+def _snapshot_source_files(trace):
+    """ Grab all source file information from traceback """
+    files = {}
+    while trace:
+        frame = trace.tb_frame
+        while frame:
+            filename = os.path.abspath(frame.f_code.co_filename)
+            if filename not in files:
+                try:
+                    with open(filename) as f:
+                        files[filename] = f.read()
+                except IOError:
+                    files[filename] = "Couldn't locate '%s' during dump." % frame.f_code.co_filename
+            frame = frame.f_back
+        trace = trace.tb_next
+    return files
+
+@_savePickle
+def _stub_function(*_, **__):
+    """ Replacement for sanitized functions """
+    raise UserWarning("This is a stub function. The original could not be serialized.")
+
+def _clean(obj, depth=1, seen=None):
+    """ Clean up pickleable stuff """
+    if seen is None:
+        seen = {}
+
+    try: # If we have processed node, skip
+        return seen[obj]
+    except (KeyError, TypeError):
+        pass
+
+    obj_type = type(obj)
+
+    if not depth:
+        print("HIT MAX DEPTH", obj_type, obj)
+        result = repr(obj)
+
+    # try: # Try initially to see if we can just pickle straight up
+    #     pickle.loads(pickle.dumps(obj))
+    #     seen[obj] = result = obj
+    # except Exception:
+    #     pass
+
+    elif obj_type == types.TracebackType:
+        seen[obj] = result = _call(None) # Preload to stop recursive cycles
+        dct ={"repr": repr(obj), "mock": _from_import("types", "TracebackType")}
+        dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("tb_"))
+        dct["tb_frame"] = _clean(obj.tb_frame, 1, seen)
+        dct["tb_next"] = _clean(obj.tb_next, 1, seen)
+        result.__init__(_mock, dct) # Update now we have the data
+
+    elif obj_type == types.FrameType:
+        seen[obj] = result = _call(None) # Preload to stop recursive cycles
+        dct ={"repr": repr(obj), "mock": _from_import("types", "FrameType")}
+        dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("f_"))
+        dct["f_builtins"] = _import("__builtin__") # Load builtins at unpickle time
+        dct["f_code"] = _clean(obj.f_code, 1, seen)
+        dct["f_back"] = _clean(obj.f_back, 1, seen)
+        dct["f_globals"] = {k: repr(v) for k, v in obj.f_globals.items() if k != "__builtins__"}
+        dct["f_locals"] = {k: repr(v) for k, v in obj.f_locals.items()}
+        result.__init__(_mock, dct) # Update with gathered data
+
+    elif obj_type == types.CodeType:
+        seen[obj] = result = _call(None) # Preload to stop recursive cycles
+        dct ={"repr": repr(obj), "mock": _from_import("types", "CodeType")}
+        dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("co_"))
+        dct["co_consts"] = _clean(obj.co_consts, 1, seen)
+        dct["co_filename"] = os.path.abspath(obj.co_filename)
+        result.__init__(_mock, dct) # Update with gathered data
+
+    elif obj_type in SEQ_TYPES:
+        result = obj_type(_clean(o, depth, seen) for o in obj)
+
+    elif obj_type == dict:
+        result = {_clean(k, depth, seen): _clean(v, depth, seen) for k, v in obj.items()}
+
+    elif obj_type in FUNC_TYPES:
+        result = _stub_function
+
+    elif obj_type == types.ClassType:
+        # TODO: do something with this
+        result = repr(obj)
+
+    elif obj_type == types.InstanceType:
+        # TODO: do something with this too!
+        result = repr(obj)
+
+    elif obj_type == type:
+        result = repr(obj)
+
+    elif obj_type in STD_TYPES:
+        result = obj
+
+    else:
+        # TODO: Add in fake object before final repr fallback
+        result = repr(obj)
+
+    try:
+        seen[obj] = result
+    except TypeError:
+        pass
+    depth -= 1
+    return result
+
+# Set it up!
+copyreg.pickle(types.TracebackType, _prepare_traceback)
 
 
-BUILTIN_TYPES = set((str, int, float, bytes, bytearray,
-               type(None),
-               datetime.date, datetime.time, datetime.datetime, datetime.timedelta))
-SEQUENCE_TYPES = set((set, list, tuple))
-try:
-    import __builtin__ as builtins
-    BUILTIN_TYPES.add(unicode)
-    BUILTIN_TYPES.add(long)
-except ImportError:
-    import builtins
 
 
-__version__ = "2.0.0"
-__all__ = ["Traceback"]
 
+if __name__ == '__main__':
+    class Tester(object):
+        def makeBroke(self):
+            raise RuntimeError()
 
-class Fake(object):
-    """ Fake a different class when unpickled """
-
-    mock = NotImplemented
-
-    @property
-    def __class__(self):
-        return self.__dict__.get("__mock__") or type(self)
-
-    def __setstate__(self, state):
-        state["__mock__"] = self.mock
-        self.__dict__ = state
-
-
-class FakeClass(Fake):
-
-    mock = type
-
-    def __init__(self, repr, vars):
-        self.__repr = repr
-        self.__dict__.update(vars)
-
-    def __repr__(self):
-        return self.__repr
-
-
-class FakeCode(Fake):
-
-    mock = types.CodeType
-
-    def __init__(self, code):
-        self.co_filename = os.path.abspath(code.co_filename)
-        self.co_name = code.co_name
-        self.co_argcount = code.co_argcount
-        self.co_consts = tuple(
-            FakeCode(c) if hasattr(c, "co_filename") else c for c in code.co_consts
-        )
-        self.co_firstlineno = code.co_firstlineno
-        self.co_lnotab = code.co_lnotab
-        self.co_varnames = code.co_varnames
-        self.co_flags = code.co_flags
-
-
-class FakeFrame(Fake):
-
-    mock = types.FrameType
-
-    def __init__(self, frame, cleaner):
-        self.f_code = FakeCode(frame.f_code)
-        self.f_locals = cleaner.dict(frame.f_locals)
-        self.f_globals = cleaner.dict(frame.f_globals)
-        self.f_lineno = frame.f_lineno
-        self.f_back = FakeFrame(frame.f_back, cleaner) if frame.f_back else None
-
-        if "self" in self.f_locals:
-            self.f_locals["self"] = cleaner.obj(frame.f_locals["self"])
-
-
-class FakeTraceback(Fake):
-
-    mock = types.TracebackType
-
-    def __init__(self, traceback, cleaner):
-        self.tb_frame = FakeFrame(traceback.tb_frame, cleaner)
-        self.tb_lineno = traceback.tb_lineno
-        self.tb_next = FakeTraceback(traceback.tb_next, cleaner) if traceback.tb_next else None
-        self.tb_lasti = 0
-
-
-class Traceback(FakeTraceback):
-    """
-    The root of the traceback. Main entry point.
-    Perform some extra steps to contain traceback essential additional info.
-
-    Example usage:
-        try:
-            raise SomeError()
-        except Exception:
-            trace = Traceback()
-            with open(filepath) as f:
-                pickle.dump(trace, f)
-
-        ~~~~~~ some time later ~~~~~~
-
-        with open(filepath) as f:
-            trace = pickle.load(f)
-            pdb.post_mortem(trace)
-    """
-
-    def __init__(self, traceback=None, pickler=pickle, full=False):
-        """ Walk through the traceback and sanitize non-pickleable things """
-        if not traceback: # If no traceback given, get recent exception
-            traceback = sys.exc_info()[2]
-        cleaner = Cleaner(pickler, full)
-        super(Traceback, self).__init__(traceback, cleaner)
-        self.files = self._snapshot_source_files() # Snapshot source files
-
-    def __setstate__(self, state):
-        """
-        Restore traceback.
-        Also apply some utility functionality to make it usable for immediate post mortem
-        """
-        super(Traceback, self).__setstate__(state)
-        self._restore_builtins()
-        self._load_source_files()
-
-    def _restore_builtins(traceback):
-        while traceback:
-            frame = traceback.tb_frame
-            while frame:
-                frame.f_globals["__builtins__"] = builtins
-                frame = frame.f_back
-            traceback = traceback.tb_next
-
-    def _snapshot_source_files(traceback):
-        files = {}
-        while traceback:
-            frame = traceback.tb_frame
-            while frame:
-                filename = os.path.abspath(frame.f_code.co_filename)
-                if filename not in files:
-                    try:
-                        files[filename] = open(filename).read()
-                    except IOError:
-                        files[
-                            filename
-                        ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
-                frame = frame.f_back
-            traceback = traceback.tb_next
-        return files
-
-    def _load_source_files(self):
-        """ Add files to the debuggers cache, recorded at the time of pickle """
-        import linecache
-        for name, data in self.files.items():
-            lines = [line + "\n" for line in data.splitlines()]
-            linecache.cache[name] = (len(data), None, lines, name)
-
-
-class Cleaner(object):
-    """ Sanitize and copy the data in the traceback to ensure a reliable pickle/unpickle """
-
-    def __init__(self, pickler, full):
-        self.pickler = pickler
-        self.full = full # Attempt to pickle as much as possible.
-        # This requires that objects exist in the environment when unpickling
-
-    @staticmethod
-    def repr(obj):
-        try:
-            return repr(obj)
-        except Exception as err:
-            return "[repr error]: " + str(err)
-
-    def obj(self, obj):
-        try:
-            return FakeClass(self.repr(obj), self.dict(obj.__dict__))
-        except:
-            return self(obj)
-
-    def dict(self, obj):
-        return dict((self(k), self(v)) for k, v in obj.items())
-
-    def seq(self, obj):
-        return (self(i) for i in obj)
-
-    def __call__(self, obj):
-        # Standard built in types. Safe.
-        obj_type = type(obj)
-        if obj_type in BUILTIN_TYPES:
-            return obj
-
-        # Standard container types
-        if obj_type in SEQUENCE_TYPES:
-            return obj_type(self.seq(obj))
-
-        if obj_type is dict:
-            return self.dict(obj)
-
-
-        # We have something else. This may require an import on unpickle.
-        # If we are pickling everything attempt to pickle this.
-        # Otherwise we can play it safe and only keep a representation.
-        if self.full:
-            try:
-                self.pickler.loads(self.pickler.dumps(obj))
-                return obj
-            except Exception:
-                pass
-        return self.repr(obj)
-
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="%s v%s: post-mortem debugging for Python programs"
-        % (sys.executable, __version__)
-    )
-    debugger_group = parser.add_mutually_exclusive_group(required=False)
-    debugger_group.add_argument(
-        "--pdb",
-        action="store_const",
-        const="pdb",
-        dest="debugger",
-        help="Use builtin pdb or pdb++",
-    )
-    debugger_group.add_argument(
-        "--pudb",
-        action="store_const",
-        const="pudb",
-        dest="debugger",
-        help="Use pudb visual debugger",
-    )
-    debugger_group.add_argument(
-        "--ipdb",
-        action="store_const",
-        const="ipdb",
-        dest="debugger",
-        help="Use ipdb IPython debugger",
-    )
-    debugger_group.add_argument(
-        "--wdb",
-        action="store_const",
-        const="wdb",
-        dest="debugger",
-        help="Use wdb debugger",
-    )
-    debugger_group.add_argument(
-        "--web_pdb",
-        action="store_const",
-        const="web_pdb",
-        dest="debugger",
-        help="Use web_pdb debugger",
-    )
-    parser.add_argument("filename", help="dumped file")
-    args = parser.parse_args()
-    if not args.debugger:
-        args.debugger = "pdb"
-
-    print("Starting %s..." % args.debugger, file=sys.stderr)
-    dbg = __import__(args.debugger, fromlist=[""])
-    with open(args.filename, "rb") as f:
-        trace = pickle.load(f)
-        dbg.post_mortem(trace)
-
-if __name__ == "__main__":
-    sys.exit(main() or 0)
+    try:
+        t = Tester()
+        t.makeBroke()
+    except Exception:
+        import sys
+        exc = sys.exc_info()
+        print(exc)
+        trace = pickle.dumps(exc)
+        import pdb
+        newtrace = pickle.loads(trace)
+        print("newtrace", newtrace)
+        pdb.post_mortem(newtrace[2])
