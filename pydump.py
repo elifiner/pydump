@@ -128,7 +128,7 @@ def _clean(obj, pickler, depth=1, seen=None):
         dct["f_code"] = _clean(obj.f_code, pickler, 1, seen)
         dct["f_back"] = _clean(obj.f_back, pickler, 1, seen)
         dct["f_globals"] = {k: repr(v) for k, v in obj.f_globals.items() if k != "__builtins__"}
-        dct["f_locals"] = {k: repr(v) for k, v in obj.f_locals.items()}
+        dct["f_locals"] = _clean(obj.f_locals, pickler, 0, seen)
         result.__init__(_mock, dct) # Update with gathered data
 
     elif obj_type == types.CodeType:
@@ -157,7 +157,9 @@ def _clean(obj, pickler, depth=1, seen=None):
             dct ={"repr": repr(obj), "mock": _from_import("types", "CodeType")}
             dct.update((at, _clean(getattr(obj, at), pickler, depth, seen)) for at in dir(obj) if at.startswith("__"))
             result.__init__(_mock, dct) # Update with gathered data
-        except Exception:
+            print("MADE OBJECT!", obj_type, obj)
+        except Exception as err:
+            print("ERROR!!", err)
             result = repr(obj)
 
     try:
@@ -178,11 +180,11 @@ if __name__ == '__main__':
         t.makeBroke()
     except Exception:
         import sys
-        exc = sys.exc_info()
-        print(exc)
-        setup() # Prep traceback functionality
-        trace = pickle.dumps(exc)
         import pdb
+        exc = sys.exc_info()
+        setup() # Prep traceback functionality
+        print("oldtrace", exc)
+        trace = pickle.dumps(exc)
         newtrace = pickle.loads(trace)
         print("newtrace", newtrace)
         pdb.post_mortem(newtrace[2])
