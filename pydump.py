@@ -90,8 +90,9 @@ def _stub_function(*_, **__):
     """ Replacement for sanitized functions """
     raise UserWarning("This is a stub function. The original could not be serialized.")
 
-def _clean(obj, pickler, depth=1, seen=None):
+def _clean(obj, pickler, depth=2, seen=None):
     """ Clean up pickleable stuff """
+    depth -= 1
     if seen is None:
         seen = {}
 
@@ -116,8 +117,8 @@ def _clean(obj, pickler, depth=1, seen=None):
         seen[obj] = result = _call(None) # Preload to stop recursive cycles
         dct ={"repr": repr(obj), "mock": _from_import("types", "TracebackType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("tb_"))
-        dct["tb_frame"] = _clean(obj.tb_frame, pickler, 1, seen)
-        dct["tb_next"] = _clean(obj.tb_next, pickler, 1, seen)
+        dct["tb_frame"] = _clean(obj.tb_frame, pickler, 2, seen)
+        dct["tb_next"] = _clean(obj.tb_next, pickler, 2, seen)
         result.__init__(_mock, dct) # Update now we have the data
 
     elif obj_type == types.FrameType:
@@ -125,17 +126,17 @@ def _clean(obj, pickler, depth=1, seen=None):
         dct ={"repr": repr(obj), "mock": _from_import("types", "FrameType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("f_"))
         dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
-        dct["f_code"] = _clean(obj.f_code, pickler, 1, seen)
-        dct["f_back"] = _clean(obj.f_back, pickler, 1, seen)
+        dct["f_code"] = _clean(obj.f_code, pickler, 2, seen)
+        dct["f_back"] = _clean(obj.f_back, pickler, 2, seen)
         dct["f_globals"] = {k: repr(v) for k, v in obj.f_globals.items() if k != "__builtins__"}
-        dct["f_locals"] = _clean(obj.f_locals, pickler, 0, seen)
+        dct["f_locals"] = _clean(obj.f_locals, pickler, 2, seen)
         result.__init__(_mock, dct) # Update with gathered data
 
     elif obj_type == types.CodeType:
         seen[obj] = result = _call(None) # Preload to stop recursive cycles
         dct ={"repr": repr(obj), "mock": _from_import("types", "CodeType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("co_"))
-        dct["co_consts"] = _clean(obj.co_consts, pickler, 1, seen)
+        dct["co_consts"] = _clean(obj.co_consts, pickler, 3, seen)
         dct["co_filename"] = os.path.abspath(obj.co_filename)
         result.__init__(_mock, dct) # Update with gathered data
 
@@ -166,7 +167,6 @@ def _clean(obj, pickler, depth=1, seen=None):
         seen[obj] = result
     except TypeError:
         pass
-    depth -= 1
     return result
 
 
