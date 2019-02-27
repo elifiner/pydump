@@ -7,13 +7,13 @@ import pickle
 import marshal
 try:
     import copy_reg as copyreg
-    STD_TYPES = pickle.Pickler.dispatch.keys()
+    STD_TYPES = [k for k,v in pickle.Pickler.dispatch.items() if v.__name__ != "save_global"]
 except ImportError:
     import copyreg
-    STD_TYPES = pickle._Pickler.dispatch.keys()
+    STD_TYPES = [k for k,v in pickle._Pickler.dispatch.items() if v.__name__ != "save_global"]
 
 SEQ_TYPES = (list, tuple, set)
-FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType, types.BuiltinMethodType)
+FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType)
 
 class _call(object):
     """ Basic building block in pickle """
@@ -43,18 +43,20 @@ def _savePickle(func):
     FunctionType = _from_import("types", funcType)
     code = _call(marshal.loads, marshal.dumps(func.__code__))
     scoped_call = type(func.__name__, (_call, ), {"__call__": lambda _, *a, **k: func(*a, **k)})
-    return scoped_call(FunctionType, code, {"__builtins__": _import("__builtin__")})
+    return scoped_call(FunctionType, code, {"__builtins__": _from_import("types", "__builtins__")})
 
 _mock = _class("mock", dct={
     "__init__": _savePickle(lambda s, d: s.__dict__.update(d)),
     "__class__": _savePickle(lambda s: s.mock), # pretend to be this
     "__repr__": _savePickle(lambda s: s.repr)}) # and look like this
 
-def _prepare_traceback(trace):
-    """ Prep traceback for pickling """
-    files = _snapshot_source_files(trace) # Take a snapshot of all the source files
-    trace = _clean(trace) # Make traceback pickle friendly
-    return _restore_traceback, (trace, files)
+def setup(pickler=pickle): # Prepare traceback pickle functionality
+    """ Prep traceback for pickling. """
+    def _prepare_traceback(trace):
+        files = _snapshot_source_files(trace) # Take a snapshot of all the source files
+        trace = _clean(trace, pickler) # Make traceback pickle friendly
+        return _restore_traceback, (trace, files)
+    copyreg.pickle(types.TracebackType, _prepare_traceback)
 
 @_savePickle
 def _restore_traceback(trace, files):
@@ -64,6 +66,7 @@ def _restore_traceback(trace, files):
         lines = [line + "\n" for line in data.splitlines()]
         linecache.cache[name] = (len(data), None, lines, name)
     return trace
+
 
 def _snapshot_source_files(trace):
     """ Grab all source file information from traceback """
@@ -87,7 +90,7 @@ def _stub_function(*_, **__):
     """ Replacement for sanitized functions """
     raise UserWarning("This is a stub function. The original could not be serialized.")
 
-def _clean(obj, depth=1, seen=None):
+def _clean(obj, pickler, depth=1, seen=None):
     """ Clean up pickleable stuff """
     if seen is None:
         seen = {}
@@ -113,17 +116,17 @@ def _clean(obj, depth=1, seen=None):
         seen[obj] = result = _call(None) # Preload to stop recursive cycles
         dct ={"repr": repr(obj), "mock": _from_import("types", "TracebackType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("tb_"))
-        dct["tb_frame"] = _clean(obj.tb_frame, 1, seen)
-        dct["tb_next"] = _clean(obj.tb_next, 1, seen)
+        dct["tb_frame"] = _clean(obj.tb_frame, pickler, 1, seen)
+        dct["tb_next"] = _clean(obj.tb_next, pickler, 1, seen)
         result.__init__(_mock, dct) # Update now we have the data
 
     elif obj_type == types.FrameType:
         seen[obj] = result = _call(None) # Preload to stop recursive cycles
         dct ={"repr": repr(obj), "mock": _from_import("types", "FrameType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("f_"))
-        dct["f_builtins"] = _import("__builtin__") # Load builtins at unpickle time
-        dct["f_code"] = _clean(obj.f_code, 1, seen)
-        dct["f_back"] = _clean(obj.f_back, 1, seen)
+        dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
+        dct["f_code"] = _clean(obj.f_code, pickler, 1, seen)
+        dct["f_back"] = _clean(obj.f_back, pickler, 1, seen)
         dct["f_globals"] = {k: repr(v) for k, v in obj.f_globals.items() if k != "__builtins__"}
         dct["f_locals"] = {k: repr(v) for k, v in obj.f_locals.items()}
         result.__init__(_mock, dct) # Update with gathered data
@@ -132,36 +135,30 @@ def _clean(obj, depth=1, seen=None):
         seen[obj] = result = _call(None) # Preload to stop recursive cycles
         dct ={"repr": repr(obj), "mock": _from_import("types", "CodeType")}
         dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("co_"))
-        dct["co_consts"] = _clean(obj.co_consts, 1, seen)
+        dct["co_consts"] = _clean(obj.co_consts, pickler, 1, seen)
         dct["co_filename"] = os.path.abspath(obj.co_filename)
         result.__init__(_mock, dct) # Update with gathered data
 
     elif obj_type in SEQ_TYPES:
-        result = obj_type(_clean(o, depth, seen) for o in obj)
+        result = obj_type(_clean(o, pickler, depth, seen) for o in obj)
 
     elif obj_type == dict:
-        result = {_clean(k, depth, seen): _clean(v, depth, seen) for k, v in obj.items()}
+        result = {_clean(k, pickler, depth, seen): _clean(v, pickler, depth, seen) for k, v in obj.items()}
 
     elif obj_type in FUNC_TYPES:
         result = _stub_function
-
-    elif obj_type == types.ClassType:
-        # TODO: do something with this
-        result = repr(obj)
-
-    elif obj_type == types.InstanceType:
-        # TODO: do something with this too!
-        result = repr(obj)
-
-    elif obj_type == type:
-        result = repr(obj)
 
     elif obj_type in STD_TYPES:
         result = obj
 
     else:
-        # TODO: Add in fake object before final repr fallback
-        result = repr(obj)
+        try:
+            seen[obj] = result = _call(None) # Preload to stop recursive cycles
+            dct ={"repr": repr(obj), "mock": _from_import("types", "CodeType")}
+            dct.update((at, _clean(getattr(obj, at), pickler, depth, seen)) for at in dir(obj) if at.startswith("__"))
+            result.__init__(_mock, dct) # Update with gathered data
+        except Exception:
+            result = repr(obj)
 
     try:
         seen[obj] = result
@@ -169,12 +166,6 @@ def _clean(obj, depth=1, seen=None):
         pass
     depth -= 1
     return result
-
-# Set it up!
-copyreg.pickle(types.TracebackType, _prepare_traceback)
-
-
-
 
 
 if __name__ == '__main__':
@@ -189,6 +180,7 @@ if __name__ == '__main__':
         import sys
         exc = sys.exc_info()
         print(exc)
+        setup() # Prep traceback functionality
         trace = pickle.dumps(exc)
         import pdb
         newtrace = pickle.loads(trace)
