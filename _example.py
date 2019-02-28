@@ -4,7 +4,15 @@
     Run for an example. Causing an exception. Catching. Pickling. Unpickling. Debugging.
 """
 
+from __future__ import print_function
+
 if __name__ == '__main__':
+
+    import sys, pdb, traceback, keepTrace
+    try: # Use cPickle if in python 2. Python 2 standard pickle has a bug with referencing.
+        import cPickle as pickle
+    except ImportError:
+        import pickle
 
     def foo():
         foovar = 7
@@ -30,12 +38,19 @@ if __name__ == '__main__':
     try:
         foo()
     except:
-        import sys, pdb, pydump
-        try: # Use cPickle if in python 2. Python 2 standard pickle has a bug with referencing.
-            import cPickle as pickle
-        except ImportError:
-            import pickle
 
-        pydump.setup() # Initialize traceback functionality with default settings.
-        trace = pickle.dumps(sys.exc_info()[2]) # Dump error traceback
-        pdb.post_mortem(pickle.loads(trace)) # Restore traceback and debug.
+        # Initialize traceback functionality with default settings.
+        keepTrace.init() # This can happen at any time before pickle. Could be a startup thing.
+
+        data = pickle.dumps(sys.exc_info()) # Dump error traceback
+
+        #############################################
+        ############### Sometime Later ##############
+        #############################################
+
+        exc = pickle.loads(data) # Restore traceback
+
+        print("="*34)
+        traceback.print_exception(*exc) # Visualize stacktrace
+        print("="*34)
+        pdb.post_mortem(exc[2]) # launch debugger
