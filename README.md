@@ -94,29 +94,29 @@ import keepTrace, dill
 keepTrace.init(pickler=dill, depth=-1)
 ```
 
-By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
-unpickler to view and debug the traceback, but you will not be able to run any functions etc.
 
+By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
+unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
 
 ---
 
-An original message from pydump. The inspiration and initially the origin of this project.
+Finally, an original message from pydump. The inspiration and initially the origin of this project. Still relevant.
 
 
 
-### Why I wrote this?
-
-I spent way too much time trying to discern details about bugs from
-logs that don't have enough information in them. Wouldn't it be nice
-to be able to open a debugger and load the entire stack of the crashed
-process into it and look around like you would if it crashed on your own
-machine?
-
-### Possible uses
-
-This project (or approach) might be useful in multiprocessing environments
-running many unattended processes. The most common case for me is on
-production web servers that I can't really stop and debug. For each
-exception caught, I write a dump file and I can debug each issue on
-my own time, on my own box, even if I don't have the source, since
-the relevant source is stored in the dump file.
+> ### Why I wrote this?
+>
+> I spent way too much time trying to discern details about bugs from
+> logs that don't have enough information in them. Wouldn't it be nice
+> to be able to open a debugger and load the entire stack of the crashed
+> process into it and look around like you would if it crashed on your own
+> machine?
+>
+> ### Possible uses
+>
+> This project (or approach) might be useful in multiprocessing environments
+> running many unattended processes. The most common case for me is on
+> production web servers that I can't really stop and debug. For each
+> exception caught, I write a dump file and I can debug each issue on
+> my own time, on my own box, even if I don't have the source, since
+> the relevant source is stored in the dump file.
