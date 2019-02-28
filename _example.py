@@ -1,4 +1,11 @@
+#!/usr/bin/env python
+
+"""
+    Run for an example. Causing an exception. Catching. Pickling. Unpickling. Debugging.
+"""
+
 if __name__ == '__main__':
+
     def foo():
         foovar = 7
         bar()
@@ -24,11 +31,11 @@ if __name__ == '__main__':
         foo()
     except:
         import sys, pdb, pydump
-        try:
+        try: # Use cPickle if in python 2. Python 2 standard pickle has a bug with referencing.
             import cPickle as pickle
         except ImportError:
             import pickle
 
-        pydump.setup()
-        trace = pickle.dumps(sys.exc_info()[2])
-        pdb.post_mortem(pickle.loads(trace))
+        pydump.setup() # Initialize traceback functionality with default settings.
+        trace = pickle.dumps(sys.exc_info()[2]) # Dump error traceback
+        pdb.post_mortem(pickle.loads(trace)) # Restore traceback and debug.

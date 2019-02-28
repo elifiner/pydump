@@ -5,7 +5,7 @@ import os
 import types
 import pickle
 import marshal
-try:
+try: # Python 2
     import copy_reg as copyreg
     STD_TYPES = [k for k,v in pickle.Pickler.dispatch.items() if v.__name__ not in ("save_global", "save_inst")]
 except ImportError:
@@ -15,7 +15,7 @@ except ImportError:
 SEQ_TYPES = (list, tuple, set)
 FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType)
 
-def setup(pickler=None, depth=3): # Prepare traceback pickle functionality
+def init(pickler=None, depth=3): # Prepare traceback pickle functionality
     """
         Prep traceback for pickling. Run this to allow pickling of traceback types.
         pickler :
@@ -177,35 +177,3 @@ def _clean(obj, pickler, depth, seen=None):
 
     seen[obj_id] = result
     return result
-
-
-if __name__ == '__main__':
-    try: # Try to use cPickle (if in python 2.*) as it solves some recursion issues (and speed)
-        import cPickle as pickle
-    except ImportError:
-        pass
-
-    class Tester(object):
-        def makeBroke(self):
-            raise RuntimeError()
-        def makeAlmostBroke(self):
-            self.makeBroke()
-        def makeNotTooBad(self):
-            self.makeAlmostBroke()
-
-    try:
-        t = Tester()
-        t.makeNotTooBad()
-    except Exception:
-
-        import sys
-        import pdb
-
-        setup() # Prep traceback functionality
-        exc = sys.exc_info()
-        trace = pickle.dumps(exc)
-        newtrace = pickle.loads(trace)
-
-        print("oldtrace", exc)
-        print("newtrace", newtrace)
-        pdb.post_mortem(newtrace[2])
