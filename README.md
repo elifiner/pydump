@@ -87,7 +87,11 @@ keepTrace.init(depth=5)
 Setting depth to infinite, and using a heavy-duty pickler (dill) will lead to very detailed and interractive debugging.
 You will however need to be able to provide the same environment as the original traceback.
 
-This is not however a core dump. So do not expect everything to function as though it were a live session.
+#### :: Warning ::
+
+This is not a core dump. So do not expect everything to function as though it were a live session. There is danger in running
+what is essentially live production code, that is most likely broken in unknown ways. There is great power in running some trivial
+functionality. Especially query functions. But understand the risks of running anything that can cause data writes / loss.
 
 ``` python
 import keepTrace, dill
