@@ -119,7 +119,7 @@ def _snapshot_source_files(trace):
     return files
 
 @_savePickle
-def _stub_function(*_, **__):
+def _stub(*_, **__):
     """ Replacement for sanitized functions """
     raise UserWarning("This is a stub function. The original was not serialized.")
 
@@ -136,65 +136,74 @@ def _clean(obj, pickler, depth, seen=None):
     try:
         obj_type = type(obj)
         if depth == -1: # We have reached our limit. Just make a basic representation
-            result = repr(obj)
+            seen[obj_id] = result = repr(obj)
+            return result
 
-        elif obj_type == types.TracebackType:
+        if obj_type == types.TracebackType:
             dct = {"_repr": repr(obj), "_mock": _from_import("types", "TracebackType")}
             seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
             dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("tb_"))
             dct["tb_frame"] = _clean(obj.tb_frame, pickler, depth+1, seen)
             dct["tb_next"] = _clean(obj.tb_next, pickler, depth+1, seen)
+            return result
 
-        elif obj_type == types.FrameType:
+        if obj_type == types.FrameType:
             dct = {"_repr": repr(obj), "_mock": _from_import("types", "FrameType")}
             seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
             dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("f_"))
             dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
             dct["f_code"] = _clean(obj.f_code, pickler, depth+1, seen)
             dct["f_back"] = _clean(obj.f_back, pickler, depth+1, seen)
-            dct["f_globals"] = {k: _clean(v, pickler, depth, seen) for k, v in obj.f_globals.items() if k != "__builtins__"}
+            dct["f_globals"] = {k: _clean(v, pickler, depth, seen) for k, v in obj.f_globals.items() if not k.startswith("__")}
             dct["f_locals"] = {k: _clean(v, pickler, depth, seen) for k,v in obj.f_locals.items()}
+            return result
 
-        elif obj_type == types.CodeType:
+        if obj_type == types.CodeType:
             dct = {"_repr": repr(obj), "_mock": _from_import("types", "CodeType")}
             seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
             dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("co_"))
             dct["co_consts"] = _clean(obj.co_consts, pickler, depth+2, seen)
             dct["co_filename"] = os.path.abspath(obj.co_filename)
+            return result
 
-        elif obj_type in SEQ_TYPES:
-            result = obj_type(_clean(o, pickler, depth, seen) for o in obj)
+        if obj_type in SEQ_TYPES:
+            seen[obj_id] = result = obj_type(_clean(o, pickler, depth, seen) for o in obj)
+            return result
 
-        elif obj_type == dict:
-            result = {_clean(k, pickler, depth, seen): _clean(v, pickler, depth, seen) for k, v in obj.items()}
+        if obj_type == dict:
+            seen[obj_id] = result = {_clean(k, pickler, depth, seen): _clean(v, pickler, depth, seen) for k, v in obj.items()}
+            return result
 
-        elif pickler:
+        if pickler:
             try: # Try to see if we can just pickle straight up
                 pickler.loads(pickler.dumps(obj))
-                result = obj
-            except Exception: # Otherwise all we can do is a representation of the object
-                result = repr(obj)
+                seen[obj_id] = result = obj
+                return result
+            except Exception: # Otherwise fallback to mocks/stubs
+                pass
 
-        elif obj_type in FUNC_TYPES:
-            result = _stub_function
+        if obj_type in FUNC_TYPES:
+            seen[obj_id] = result = _stub
+            return result
 
-        elif obj_type in STD_TYPES:
-            result = obj
+        if obj_type in STD_TYPES:
+            seen[obj_id] = result = obj
+            return result
 
-        elif obj_type == types.ModuleType:
+        if obj_type == types.ModuleType:
             if not hasattr(obj, "__file__") or obj.__file__.startswith(os.path.dirname(types.__file__)):
-                result = _import(obj.__name__) # Standard library stuff. Safe to import this.
+                seen[obj_id] = result = _import(obj.__name__) # Standard library stuff. Safe to import this.
             else:
-                result = repr(obj) # Otherwise sanitize it!
-        else:
-            try: # Create a mock object as a fake representation of the original for inspection
-                dct ={"_repr": repr(obj), "_mock": object}
-                seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
-                dct.update((at, _clean(getattr(obj, at), pickler, depth, seen)) for at in dir(obj) if not at.startswith("__"))
-            except Exception as err: # Failing that, just get the representation of the thing...
-                result = repr(obj)
-    except Exception as err:
-        result = "Failed to serialize object: %s" % err
+                seen[obj_id] = result = repr(obj) # Otherwise sanitize it!
+            return result
 
-    seen[obj_id] = result
-    return result
+        try: # Create a mock object as a fake representation of the original for inspection
+            dct ={"_repr": repr(obj), "_mock": object}
+            seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
+            dct.update((at, _clean(getattr(obj, at), pickler, depth, seen)) for at in dir(obj) if not at.startswith("__"))
+        except Exception as err: # Failing that, just get the representation of the thing...
+            seen[obj_id] = result = repr(obj)
+        return result
+    except Exception as err:
+        seen[obj_id] = result = "Failed to serialize object: %s" % err
+        return result
