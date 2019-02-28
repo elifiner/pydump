@@ -23,8 +23,12 @@ if __name__ == '__main__':
     try:
         foo()
     except:
-        import pydump
-        filename = __file__ + '.dump'
-        print("Exception caught, writing %s" % filename)
-        pydump.save_dump(filename)
-        print("Run 'python -m pydump %s' to debug" % (filename))
+        import sys, pdb, pydump
+        try:
+            import cPickle as pickle
+        except ImportError:
+            import pickle
+
+        pydump.setup()
+        trace = pickle.dumps(sys.exc_info()[2])
+        pdb.post_mortem(pickle.loads(trace))

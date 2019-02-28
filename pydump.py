@@ -163,7 +163,8 @@ def _clean(obj, pickler, depth, seen=None):
         elif obj_type == types.ModuleType:
             if not hasattr(obj, "__file__") or obj.__file__.startswith(os.path.dirname(types.__file__)):
                 result = _import(obj.__name__) # Standard library stuff. Safe to import this.
-
+            else:
+                result = repr(obj) # Otherwise sanitize it!
         else:
             try: # Create a mock object as a fake representation of the original for inspection
                 dct ={"_repr": repr(obj), "_mock": object}
