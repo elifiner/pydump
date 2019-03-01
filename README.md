@@ -110,6 +110,10 @@ moment of serialization. This is active by default, and recommended. However inc
 can waste a lot of space. If you can access the files where you debug, and can be reasonably sure the source will not change,
 turning this off can be a wise move.
 
+``` python
+import keepTrace
+keepTrace.init(include_source=False)
+```
 ---
 
 Finally, an original message from pydump. The inspiration and initially the origin of this project. Still relevant.
