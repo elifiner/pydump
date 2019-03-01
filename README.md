@@ -34,7 +34,7 @@ to unpickle the traceback.
 Usage. 1. 2. 3. 4.
 =====
 
-There are three things and only one function to know to get up and running.
+There are four things and only one function to know to get up and running.
 
 ### 1) Initialize
 
