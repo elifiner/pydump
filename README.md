@@ -31,7 +31,7 @@ The pickle process has been designed in such a way that this module is not requi
 to unpickle the traceback.
 
 
-Usage. 1. 2. 3.
+Usage. 1. 2. 3. 4.
 =====
 
 There are three things and only one function to know to get up and running.
@@ -48,8 +48,6 @@ keepTrace.init()
 
 ### 2) Pickler
 
-Init takes two arguments. Pickler and Depth.
-
 If you supply a pickler, it will use it to determine if an object can or cannot be pickled by that pickler.
 In general, use the pickler you plan on later pickling the tracebacks with. ie: pickle, cloudpickle, dill.
 
@@ -64,8 +62,6 @@ keepTrace.init(pickler=pickle)
 ```
 
 ### 3) Depth
-
-Init takes two arguments. Pickler and Depth.
 
 Depth controls how far beyond the traceback the pickle will reach. ie: objects within attributes, within classes within objects...etc...etc...
 
@@ -82,33 +78,30 @@ import keepTrace
 keepTrace.init(depth=5)
 ```
 
----
+> Setting depth to infinite, and using a heavy-duty pickler (dill) will lead to very detailed and interractive debugging.
+> You will however need to be able to provide the same environment as the original traceback.
+>
+> #### :: Warning ::
+>
+> This is not a core dump. So do not expect everything to function as though it were a live session. There is danger in running
+> what is essentially live production code, that is most likely broken in unknown ways, if you're in an environment where you could cause
+> data corruption or loss. However, there is much to gain by keeping as many "live" objects as possible around. Most of the time you need to
+> run that one harmless query function with a different argument, just to see if returns a correct value.
+>
+> ``` python
+> import keepTrace, dill
+> keepTrace.init(pickler=dill, depth=-1)
+> ```
+>
+> By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
+> unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
 
-Setting depth to infinite, and using a heavy-duty pickler (dill) will lead to very detailed and interractive debugging.
-You will however need to be able to provide the same environment as the original traceback.
-
-#### :: Warning ::
-
-This is not a core dump. So do not expect everything to function as though it were a live session. There is danger in running
-what is essentially live production code, that is most likely broken in unknown ways, if you're in an environment where you could cause
-data corruption or loss. However, there is much to gain by keeping as many "live" objects as possible around. Most of the time you need to
-run that one harmless query function with a different argument, just to see if returns a correct value.
-
-``` python
-import keepTrace, dill
-keepTrace.init(pickler=dill, depth=-1)
-```
-
-
-By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
-unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
-
-#### Include Source
+### 4) Include Source
 
 There is one final argument to init. This will attempt to take a snapshot of the source files at the
-moment of serialization. This is active by default, and recommended. However including the source in all your tracebacks
-can waste a lot of space. If you can access the files where you debug, and can be reasonably sure the source will not change,
-turning this off can be a wise move.
+moment of serialization. This is active by default, and recommended that it stays that way.
+
+However including the source in all your tracebacks can waste a lot of space if you have frequent logs. If you can access the files where you debug, and can be reasonably sure the source will not change, turning this off can make sense.
 
 ``` python
 import keepTrace
