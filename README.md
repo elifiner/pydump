@@ -78,9 +78,12 @@ import keepTrace
 keepTrace.init(depth=5)
 ```
 
-> Setting depth to infinite, and using a heavy-duty pickler (dill) will lead to very detailed and interractive debugging.
-> You will however need to be able to provide the same environment as the original traceback.
->
+By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
+unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
+
+Setting depth to infinite, and using a heavy-duty pickler (dill) will lead to very detailed and interractive debugging.
+You will however need to be able to provide the same environment as the original traceback.
+
 > #### :: Warning ::
 >
 > This is not a core dump. So do not expect everything to function as though it were a live session. There is danger in running
@@ -92,9 +95,6 @@ keepTrace.init(depth=5)
 > import keepTrace, dill
 > keepTrace.init(pickler=dill, depth=-1)
 > ```
->
-> By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
-> unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
 
 ### 4) Include Source
 
@@ -106,6 +106,16 @@ However including the source in all your tracebacks can waste a lot of space if 
 ``` python
 import keepTrace
 keepTrace.init(include_source=False)
+```
+
+When saving a pickle, there are a couple of things you can do to dramatically shrink its size. gzip and pickletools.
+
+``` python
+import gzip, pickle, pickletools
+with gzip.open(filepath, "wb") as f:
+  data = pickle.dumps(traceback)
+  data = pickletools.optimize(data)
+  f.write(data)
 ```
 ---
 
