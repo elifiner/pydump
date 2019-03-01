@@ -90,8 +90,9 @@ You will however need to be able to provide the same environment as the original
 #### :: Warning ::
 
 This is not a core dump. So do not expect everything to function as though it were a live session. There is danger in running
-what is essentially live production code, that is most likely broken in unknown ways. There is great power in running some trivial
-functionality. Especially query functions. But understand the risks of running anything that can cause data writes / loss.
+what is essentially live production code, that is most likely broken in unknown ways, if you're in an environment where you could cause
+data corruption or loss. However, there is much to gain by keeping as many "live" objects as possible around. Most of the time you need to
+run that one harmless query function with a different argument, just to see if returns a correct value.
 
 ``` python
 import keepTrace, dill
