@@ -36,7 +36,7 @@ except ImportError:
 SEQ_TYPES = (list, tuple, set)
 FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType)
 
-def init(pickler=None, depth=3): # Prepare traceback pickle functionality
+def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle functionality
     """
         Prep traceback for pickling. Run this to allow pickling of traceback types.
         pickler :
@@ -50,11 +50,22 @@ def init(pickler=None, depth=3): # Prepare traceback pickle functionality
               The higher the value, the more you can inspect at the cost of extra pickle size.
               A value of -1 means no limit. Fan out forever and grab everything.
     """
-    def _prepare_traceback(trace):
-        files = _snapshot_source_files(trace) # Take a snapshot of all the source files
+    def prepare_traceback(trace):
         trace = _clean(trace, pickler, depth) # Make traceback pickle friendly
-        return _restore_traceback, (trace, files)
-    copyreg.pickle(types.TracebackType, _prepare_traceback)
+        if include_source:
+            files = _snapshot_source_files(trace) # Take a snapshot of all the source files
+            return restore_traceback, (trace, files)
+        return _savePickle(lambda t: t), (trace, ) 
+
+    @_savePickle
+    def restore_traceback(trace, files):
+        import linecache # Add source files to linecache for debugger to see them.
+        for name, data in files.items():
+            lines = [line + "\n" for line in data.splitlines()]
+            linecache.cache[name] = (len(data), None, lines, name)
+        return trace
+
+    copyreg.pickle(types.TracebackType, prepare_traceback)
 
 # There is a bug in python 2.* pickle (not cPickle) that struggles to handle
 # recursive reduction objects. If using python 2.*, try to always pickle with cPickle
@@ -91,15 +102,6 @@ _mock = _call(type, "mock", (object, ), {
     "__init__": _savePickle(lambda s, d: s.__setattr__("__dict__", d)), # We cannot lose reference to this dict.
     "__class__": _call(property, _savePickle(lambda s: s._mock)), # pretend to be this
     "__repr__": _savePickle(lambda s: s._repr)}) # and look like this
-
-@_savePickle
-def _restore_traceback(trace, files):
-    """ Restore traceback from pickle """
-    import linecache # Add source files to linecache for debugger to see them.
-    for name, data in files.items():
-        lines = [line + "\n" for line in data.splitlines()]
-        linecache.cache[name] = (len(data), None, lines, name)
-    return trace
 
 def _snapshot_source_files(trace):
     """ Grab all source file information from traceback """

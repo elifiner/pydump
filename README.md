@@ -102,6 +102,13 @@ keepTrace.init(pickler=dill, depth=-1)
 By default the pickles are very conservative. Everything will be mocked and stubbed. You will not need anything other than an
 unpickler to view and inspect the traceback, but you will not be able to run any of the functionality either.
 
+#### Include Source
+
+There is one final argument to init. This will attempt to take a snapshot of the source files at the
+moment of serialization. This is active by default, and recommended. However including the source in all your tracebacks
+can waste a lot of space. If you can access the files where you debug, and can be reasonably sure the source will not change,
+turning this off can be a wise move.
+
 ---
 
 Finally, an original message from pydump. The inspiration and initially the origin of this project. Still relevant.
