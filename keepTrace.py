@@ -54,11 +54,11 @@ def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle
         clean_trace = _clean(trace, pickler, depth) # Make traceback pickle friendly
         if include_source:
             files = _snapshot_source_files(trace) # Take a snapshot of all the source files
-            return restore_traceback, (clean_trace, files)
+            return cache_files, (clean_trace, files)
         return clean_trace.func, clean_trace.args
 
     @_savePickle
-    def restore_traceback(trace, files):
+    def cache_files(trace, files):
         import linecache # Add source files to linecache for debugger to see them.
         for name, data in files.items():
             lines = [line + "\n" for line in data.splitlines()]
