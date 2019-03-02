@@ -10,28 +10,72 @@ except ImportError:
 
 import keepTrace
 
+def error():
+    raise RuntimeError()
+
+def recurse():
+    recurse()
+
+def syntax():
+    eval("for this is")
 
 class TestPickle(unittest.TestCase):
 
+    def assertTrace(self, exc):
+        restored = pickle.loads(pickle.dumps(exc))
+        source_trace = "".join(traceback.format_exception(*exc)).replace(__file__, os.path.abspath(__file__))
+        expect_trace = "".join(traceback.format_exception(*restored))
+        self.assertEqual(source_trace, expect_trace)
+
     def test_roundtrip(self):
-        sys.modules[__name__].__file__ = os.path.abspath(sys.modules[__name__].__file__)
         keepTrace.init()
-
-        def error():
-            raise RuntimeError()
-
         try:
             error()
         except RuntimeError:
-            exc = sys.exc_info()
-            exc_trace = traceback.format_exception(*exc)
+            self.assertTrace(sys.exc_info())
 
-            data = pickle.dumps(exc)
-            exc_restored = pickle.loads(data)
-            restored_trace = traceback.format_exception(*exc_restored)
+    def test_roundtrip_infinite_depth(self):
+        keepTrace.init(depth=-1)
+        try:
+            error()
+        except RuntimeError:
+            self.assertTrace(sys.exc_info())
 
-            print(exc_trace)
-            print(restored_trace)
+    def test_roundtrip_pickler(self):
+        keepTrace.init(pickler=pickle)
+        try:
+            error()
+        except RuntimeError:
+            self.assertTrace(sys.exc_info())
+
+    def test_roundtrip_full(self):
+        keepTrace.init(pickle, -1)
+        try:
+            error()
+        except RuntimeError:
+            self.assertTrace(sys.exc_info())
+
+    def test_roundtrip_no_source(self):
+        keepTrace.init(include_source=False)
+        try:
+            error()
+        except RuntimeError:
+            self.assertTrace(sys.exc_info())
+
+    def test_recursion(self):
+        keepTrace.init()
+        try:
+            recurse()
+        except RecursionError:
+            self.assertTrace(sys.exc_info())
+
+    def test_syntax(self):
+        keepTrace.init()
+        try:
+            syntax()
+        except SyntaxError:
+            self.assertTrace(sys.exc_info())
+
 
 
 if __name__ == '__main__':
