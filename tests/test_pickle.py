@@ -27,7 +27,7 @@ class TestPickle(unittest.TestCase):
         restored = pickle.loads(data)
         source_trace = "".join(traceback.format_exception(*exc)).replace(__file__, os.path.abspath(__file__))
         expect_trace = "".join(traceback.format_exception(*restored))
-        # self.assertEqual(source_trace, expect_trace)
+        self.assertEqual(source_trace, expect_trace)
 
     def test_roundtrip(self):
         keepTrace.init()
