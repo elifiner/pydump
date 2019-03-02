@@ -73,8 +73,6 @@ def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle
 class _call(object):
     """ Basic building block in pickle """
     def __reduce__(self):
-        if self.func == _mock and not self.args[0]:
-            raise RuntimeError("debug")
         return self.func, self.args
     def __init__(self, func, *args):
         self.__dict__.update(locals())
