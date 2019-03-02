@@ -55,7 +55,7 @@ def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle
         if include_source:
             files = _snapshot_source_files(trace) # Take a snapshot of all the source files
             return restore_traceback, (clean_trace, files)
-        return _savePickle(lambda t: t), (clean_trace, )
+        return clean_trace.func, clean_trace.args
 
     @_savePickle
     def restore_traceback(trace, files):

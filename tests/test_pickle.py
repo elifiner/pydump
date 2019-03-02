@@ -69,14 +69,14 @@ class TestPickle(unittest.TestCase):
         sys.setrecursionlimit(200)
         try:
             recurse(sys.getrecursionlimit()*2)
-        except RecursionError:
+        except Exception:
             self.assertTrace(sys.exc_info())
 
     def test__fake_recursion(self):
         keepTrace.init()
         try:
             recurse(sys.getrecursionlimit()/2)
-        except RecursionError:
+        except Exception:
             self.assertTrace(sys.exc_info())
 
     def test_syntax(self):
