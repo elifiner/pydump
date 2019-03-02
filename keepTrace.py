@@ -51,11 +51,11 @@ def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle
               A value of -1 means no limit. Fan out forever and grab everything.
     """
     def prepare_traceback(trace):
-        trace = _clean(trace, pickler, depth) # Make traceback pickle friendly
+        clean_trace = _clean(trace, pickler, depth) # Make traceback pickle friendly
         if include_source:
             files = _snapshot_source_files(trace) # Take a snapshot of all the source files
-            return restore_traceback, (trace, files)
-        return _savePickle(lambda t: t), (trace, ) 
+            return restore_traceback, (clean_trace, files)
+        return _savePickle(lambda t: t), (clean_trace, )
 
     @_savePickle
     def restore_traceback(trace, files):
