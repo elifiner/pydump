@@ -66,7 +66,6 @@ class TestPickle(unittest.TestCase):
 
     def test_recursion(self):
         keepTrace.init()
-        sys.setrecursionlimit(200)
         try:
             recurse(sys.getrecursionlimit()*2)
         except Exception:
