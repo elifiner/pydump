@@ -70,7 +70,7 @@ class TestPickle(unittest.TestCase):
         try:
             recurse(sys.getrecursionlimit()*2)
         except Exception:
-            self.assertTrace(sys.exc_info())
+            pickle.loads(pickle.dumps(sys.exc_info()))
 
     def test__fake_recursion(self):
         keepTrace.init()
