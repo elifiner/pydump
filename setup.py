@@ -5,7 +5,7 @@ except ImportError:
 import os.path
 
 setup(
-version = "1.0.0",
+version = "1.0.2",
     name = "keepTrace",
     author = "Jason Dixon",
     py_modules = ["keepTrace"],

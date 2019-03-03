@@ -23,6 +23,7 @@
 from __future__ import print_function
 
 import os
+import sys
 import types
 import pickle
 import marshal
@@ -31,6 +32,7 @@ try: # Python 2
     STD_TYPES = [k for k,v in pickle.Pickler.dispatch.items() if v.__name__ not in ("save_global", "save_inst")]
 except ImportError:
     import copyreg
+    xrange = range
     STD_TYPES = [k for k,v in pickle._Pickler.dispatch.items() if v.__name__ not in ("save_global", "save_type")]
 
 SEQ_TYPES = (list, tuple, set)
@@ -123,7 +125,7 @@ def _stub(*_, **__):
     """ Replacement for sanitized functions """
     raise UserWarning("This is a stub function. The original was not serialized.")
 
-def _clean(obj, pickler, depth, seen=None):
+def _clean(obj, pickler, depth, seen=None, limit=min(int(sys.getrecursionlimit()*0.3),100)):
     """ Clean up pickleable stuff """
     depth -= 1
     if seen is None:
@@ -140,23 +142,45 @@ def _clean(obj, pickler, depth, seen=None):
             return result
 
         if obj_type == types.TracebackType:
-            dct = {"_repr": repr(obj), "_mock": _from_import("types", "TracebackType")}
-            seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
-            dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("tb_"))
-            dct["tb_frame"] = _clean(obj.tb_frame, pickler, depth+1, seen)
-            dct["tb_next"] = _clean(obj.tb_next, pickler, depth+1, seen)
-            return result
+            trace = obj
+            last_trace = {}
+            for _ in xrange(limit): # Loop here for less recursive calls to _clean
+                if not trace:
+                    break
+                trace_id = id(trace)
+                if trace_id in seen:
+                    last_trace["tb_next"] = seen[trace_id]
+                    break
+                dct = {"_repr": repr(trace), "_mock": _from_import("types", "TracebackType")}
+                seen[trace_id] = last_trace["tb_next"] = _call(_mock, dct) # Preload to stop recursive cycles
+                dct.update((at, getattr(trace, at)) for at in dir(trace) if at.startswith("tb_"))
+                dct["tb_frame"] = _clean(trace.tb_frame, pickler, depth+1, seen)
+                trace = trace.tb_next
+                last_trace = dct
+            last_trace["tb_next"] = None
+            return seen[obj_id]
 
         if obj_type == types.FrameType:
-            dct = {"_repr": repr(obj), "_mock": _from_import("types", "FrameType")}
-            seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
-            dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("f_"))
-            dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
-            dct["f_code"] = _clean(obj.f_code, pickler, depth+1, seen)
-            dct["f_back"] = _clean(obj.f_back, pickler, depth+1, seen)
-            dct["f_globals"] = {k: _clean(v, pickler, depth, seen) for k, v in obj.f_globals.items() if not k.startswith("__")}
-            dct["f_locals"] = {k: _clean(v, pickler, depth, seen) for k,v in obj.f_locals.items()}
-            return result
+            frame = obj
+            last_frame = {}
+            for _ in xrange(limit): # Loop here for less recursive calls to _clean
+                if not frame:
+                    break
+                frame_id = id(frame)
+                if frame_id in seen:
+                    last_frame["f_back"] = seen[frame_id]
+                    break
+                dct = {"_repr": repr(frame), "_mock": _from_import("types", "FrameType")}
+                seen[frame_id] = last_frame["f_back"] = _call(_mock, dct) # Preload to stop recursive cycles
+                dct.update((at, getattr(frame, at)) for at in dir(frame) if at.startswith("f_"))
+                dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
+                dct["f_globals"] = {k: _clean(v, pickler, depth, seen) for k, v in frame.f_globals.items() if not k.startswith("__")}
+                dct["f_locals"] = {k: _clean(v, pickler, depth, seen) for k,v in frame.f_locals.items()}
+                dct["f_code"] = _clean(frame.f_code, pickler, depth+1, seen)
+                frame = frame.f_back
+                last_frame = dct
+            last_frame["f_back"] = None
+            return seen[obj_id]
 
         if obj_type == types.CodeType:
             dct = {"_repr": repr(obj), "_mock": _from_import("types", "CodeType")}
