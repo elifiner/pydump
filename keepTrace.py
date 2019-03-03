@@ -39,7 +39,7 @@ except ImportError:
 SEQ_TYPES = (list, tuple, set)
 FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType)
 
-def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle functionality
+def init(pickler=None, depth=3, include_source=True, limit=None): # Prepare traceback pickle functionality
     """
         Prep traceback for pickling. Run this to allow pickling of traceback types.
         pickler :
@@ -55,10 +55,11 @@ def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle
         include_source:
             * Include source code in pickle, and reconstruct on unpickle for debugging. On by default. Recommended, though
               will eat up extra space if there are numerous traceback dumps.
+        limit   :
+            * Reduce the depth traversed in the traceback (different from depth setting above which handles depth from traceback).
     """
     def prepare_traceback(trace):
-        limit = int(math.sqrt(sys.getrecursionlimit())) # Max depth we can traverse before recursion error
-        clean_trace = _clean(trace, pickler, depth, {}, limit) # Make traceback pickle friendly
+        clean_trace = _clean(trace, pickler, depth, limit) # Make traceback pickle friendly
         if include_source:
             files = _snapshot_source_files(trace) # Take a snapshot of all the source files
             return cache_files, (clean_trace, files)
@@ -130,11 +131,13 @@ def _stub(*_, **__):
     """ Replacement for sanitized functions """
     raise UserWarning("This is a stub function. The original was not serialized.")
 
-def _clean(obj, pickler, depth, seen=None, limit=1):
+def _clean(obj, pickler, depth, limit=None, seen=None):
     """ Clean up pickleable stuff """
     depth -= 1
     if seen is None:
         seen = {}
+    if limit is None:
+        limit = int(math.sqrt(sys.getrecursionlimit())) # Max depth we can traverse before recursion error
 
     obj_id = id(obj)
     if obj_id in seen: # If we have processed object, skip
@@ -159,7 +162,7 @@ def _clean(obj, pickler, depth, seen=None, limit=1):
                 dct = {"_repr": repr(trace), "_mock": _from_import("types", "TracebackType")}
                 seen[trace_id] = last_trace["tb_next"] = _call(_mock, dct) # Preload to stop recursive cycles
                 dct.update((at, getattr(trace, at)) for at in dir(trace) if at.startswith("tb_"))
-                dct["tb_frame"] = _clean(trace.tb_frame, pickler, depth+1, seen)
+                dct["tb_frame"] = _clean(trace.tb_frame, pickler, depth+1, limit, seen)
                 trace = trace.tb_next
                 last_trace = dct
             last_trace["tb_next"] = None
@@ -177,9 +180,9 @@ def _clean(obj, pickler, depth, seen=None, limit=1):
                 seen[frame_id] = last_frame["f_back"] = _call(_mock, dct) # Preload to stop recursive cycles
                 dct.update((at, getattr(frame, at)) for at in dir(frame) if at.startswith("f_"))
                 dct["f_builtins"] = _from_import("types", "__builtins__") # Load builtins at unpickle time
-                dct["f_globals"] = {k: _clean(v, pickler, depth, seen) for k, v in frame.f_globals.items() if not k.startswith("__")}
-                dct["f_locals"] = {k: _clean(v, pickler, depth, seen) for k,v in frame.f_locals.items()}
-                dct["f_code"] = _clean(frame.f_code, pickler, depth+1, seen)
+                dct["f_globals"] = {k: _clean(v, pickler, depth, limit, seen) for k, v in frame.f_globals.items() if not k.startswith("__")}
+                dct["f_locals"] = {k: _clean(v, pickler, depth, limit, seen) for k,v in frame.f_locals.items()}
+                dct["f_code"] = _clean(frame.f_code, pickler, depth+1, limit, seen)
                 frame = frame.f_back
                 last_frame = dct
             return seen[obj_id]
@@ -188,16 +191,16 @@ def _clean(obj, pickler, depth, seen=None, limit=1):
             dct = {"_repr": repr(obj), "_mock": _from_import("types", "CodeType")}
             seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
             dct.update((at, getattr(obj, at)) for at in dir(obj) if at.startswith("co_"))
-            dct["co_consts"] = _clean(obj.co_consts, pickler, depth+2, seen)
+            dct["co_consts"] = _clean(obj.co_consts, pickler, depth+2, limit, seen)
             dct["co_filename"] = os.path.abspath(obj.co_filename)
             return result
 
         if obj_type in SEQ_TYPES:
-            seen[obj_id] = result = obj_type(_clean(o, pickler, depth, seen) for o in obj)
+            seen[obj_id] = result = obj_type(_clean(o, pickler, depth, limit, seen) for o in obj)
             return result
 
         if obj_type == dict:
-            seen[obj_id] = result = {_clean(k, pickler, depth, seen): _clean(v, pickler, depth, seen) for k, v in obj.items()}
+            seen[obj_id] = result = {_clean(k, pickler, depth, limit, seen): _clean(v, pickler, depth, limit, seen) for k, v in obj.items()}
             return result
 
         if pickler:
@@ -226,7 +229,7 @@ def _clean(obj, pickler, depth, seen=None, limit=1):
         try: # Create a mock object as a fake representation of the original for inspection
             dct ={"_repr": repr(obj), "_mock": object}
             seen[obj_id] = result = _call(_mock, dct) # Preload to stop recursive cycles
-            dct.update((at, _clean(getattr(obj, at), pickler, depth, seen)) for at in dir(obj) if not at.startswith("__"))
+            dct.update((at, _clean(getattr(obj, at), pickler, depth, limit, seen)) for at in dir(obj) if not at.startswith("__"))
         except Exception as err: # Failing that, just get the representation of the thing...
             seen[obj_id] = result = repr(obj)
         return result
