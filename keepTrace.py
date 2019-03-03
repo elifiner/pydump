@@ -39,7 +39,7 @@ except ImportError:
 SEQ_TYPES = (list, tuple, set)
 FUNC_TYPES = (types.FunctionType, types.MethodType, types.LambdaType, types.BuiltinFunctionType)
 
-def init(pickler=None, depth=3, include_source=True, limit=int(math.sqrt(sys.getrecursionlimit()))): # Prepare traceback pickle functionality
+def init(pickler=None, depth=3, include_source=True): # Prepare traceback pickle functionality
     """
         Prep traceback for pickling. Run this to allow pickling of traceback types.
         pickler :
@@ -55,10 +55,9 @@ def init(pickler=None, depth=3, include_source=True, limit=int(math.sqrt(sys.get
         include_source:
             * Include source code in pickle, and reconstruct on unpickle for debugging. On by default. Recommended, though
               will eat up extra space if there are numerous traceback dumps.
-        limit   :
-            * Limit to walk the stack. To assist in preventing recursion issues when pickling the data.
     """
     def prepare_traceback(trace):
+        limit = int(math.sqrt(sys.getrecursionlimit())) # Max depth we can traverse before recursion error
         clean_trace = _clean(trace, pickler, depth, limit) # Make traceback pickle friendly
         if include_source:
             files = _snapshot_source_files(trace) # Take a snapshot of all the source files
