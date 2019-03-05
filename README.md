@@ -2,6 +2,8 @@
 keepTrace
 =========
 
+[![Build Status](https://travis-ci.org/internetimagery/keepTrace.svg?branch=master)](https://travis-ci.org/internetimagery/keepTrace)
+
 This project provides the ability to pickle traceback objects.
 Specifically including enough details about the exception to be able to restore
 and debug the traceback at a later date.
