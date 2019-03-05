@@ -1,5 +1,5 @@
 language: python
-script: python tests/test_pickle.py
+script: python tests
 deploy:
   provider: pypi
   user: internetimagery
