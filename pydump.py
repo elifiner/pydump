@@ -192,7 +192,8 @@ def _get_traceback_files(traceback):
             filename = os.path.abspath(frame.f_code.co_filename)
             if filename not in files:
                 try:
-                    files[filename] = open(filename).read()
+                    with open(filename) as f:
+                        files[filename] = f.read()
                 except IOError:
                     files[
                         filename
