@@ -26,11 +26,11 @@ import sys
 import pdb
 import gzip
 import linecache
+
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
-
 
 PY2 = (sys.version_info.major == 2)
 
@@ -44,9 +44,9 @@ try:
 except ImportError:
     dill = None
 
-
 __version__ = "1.2.0"
 DUMP_VERSION = 1
+PYC_FILE_MARKER = "__THIS_IS_PYC_FILE__"
 
 
 def save_dump(filename, tb=None):
@@ -89,7 +89,7 @@ def load_dump(filename):
                 try:
                     with open(filename, "rb") as f:
                         return dill.load(f)
-                except: 
+                except Exception:
                     pass  # dill load failed, try pickle instead
         try:
             return pickle.load(f)
@@ -98,15 +98,22 @@ def load_dump(filename):
                 return pickle.load(f)
 
 
-def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
+def debug_dump(dump_filename,
+               py_source_directory,
+               post_mortem_func=pdb.post_mortem):
     # monkey patching for pdb's longlist command
-    import inspect, types
-    inspect.isframe = lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"
-    inspect.iscode = lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"
-    inspect.isclass = lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"
-    inspect.istraceback = lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"
+    import inspect
+    import types
+    inspect.isframe = lambda obj: isinstance(
+        obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"
+    inspect.iscode = lambda obj: isinstance(
+        obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"
+    inspect.isclass = lambda obj: isinstance(
+        obj, type) or obj.__class__.__name__ == "FakeClass"
+    inspect.istraceback = lambda obj: isinstance(
+        obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"
     dump = load_dump(dump_filename)
-    _cache_files(dump["files"])
+    _cache_files(dump["files"], py_source_directory)
     tb = dump["traceback"]
     _inject_builtins(tb)
     _old_checkcache = linecache.checkcache
@@ -116,7 +123,6 @@ def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
 
 
 class FakeClass(object):
-
     def __init__(self, repr, vars):
         self.__repr = repr
         self.__dict__.update(vars)
@@ -126,14 +132,13 @@ class FakeClass(object):
 
 
 class FakeCode(object):
-
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
         self.co_name = code.co_name
         self.co_argcount = code.co_argcount
         self.co_consts = tuple(
-            FakeCode(c) if hasattr(c, "co_filename") else c for c in code.co_consts
-        )
+            FakeCode(c) if hasattr(c, "co_filename") else c
+            for c in code.co_consts)
         self.co_firstlineno = code.co_firstlineno
         self.co_lnotab = code.co_lnotab
         self.co_varnames = code.co_varnames
@@ -141,7 +146,6 @@ class FakeCode(object):
 
 
 class FakeFrame(object):
-
     def __init__(self, frame):
         self.f_code = FakeCode(frame.f_code)
         self.f_locals = _convert_dict(frame.f_locals)
@@ -152,13 +156,13 @@ class FakeFrame(object):
         if "self" in self.f_locals:
             self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
 
-                    
-class FakeTraceback(object):
 
+class FakeTraceback(object):
     def __init__(self, traceback):
         self.tb_frame = FakeFrame(traceback.tb_frame)
         self.tb_lineno = traceback.tb_lineno
-        self.tb_next = FakeTraceback(traceback.tb_next) if traceback.tb_next else None
+        self.tb_next = FakeTraceback(
+            traceback.tb_next) if traceback.tb_next else None
         self.tb_lasti = 0
 
 
@@ -167,9 +171,8 @@ def _remove_builtins(fake_tb):
     while traceback:
         frame = traceback.tb_frame
         while frame:
-            frame.f_globals = dict(
-                (k, v) for k, v in frame.f_globals.items() if k not in dir(builtins)
-            )
+            frame.f_globals = dict((k, v) for k, v in frame.f_globals.items()
+                                   if k not in dir(builtins))
             frame = frame.f_back
         traceback = traceback.tb_next
 
@@ -192,11 +195,17 @@ def _get_traceback_files(traceback):
             filename = os.path.abspath(frame.f_code.co_filename)
             if filename not in files:
                 try:
-                    files[filename] = open(filename).read()
+                    with open(filename) as f:
+                        files[filename] = f.read()
                 except IOError:
-                    files[
-                        filename
-                    ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                    root, _ = os.path.splitext(filename)
+                    pyc_path = "".join((root, ".pyc"))
+                    pyc_file_exists = os.path.exists(pyc_path)
+                    if pyc_file_exists:
+                        files[filename] = PYC_FILE_MARKER
+                    else:
+                        files[
+                            filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
@@ -212,7 +221,7 @@ def _safe_repr(v):
 def _convert_obj(obj):
     try:
         return FakeClass(_safe_repr(obj), _convert_dict(obj.__dict__))
-    except:
+    except Exception:
         return _convert(obj)
 
 
@@ -229,51 +238,83 @@ def _convert(v):
         try:
             dill.dumps(v)
             return v
-        except:
+        except Exception:
             return _safe_repr(v)
     else:
         from datetime import date, time, datetime, timedelta
-    
+
         if PY2:
-            BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+            BUILTIN = (str, unicode, int, long, float, date, time, datetime,
+                       timedelta)
         else:
             BUILTIN = (str, int, float, date, time, datetime, timedelta)
         # XXX: what about bytes and bytearray?
-    
+
         if v is None:
             return v
-    
+
         if type(v) in BUILTIN:
             return v
-    
+
         if type(v) is tuple:
             return tuple(_convert_seq(v))
-    
+
         if type(v) is list:
             return list(_convert_seq(v))
-    
+
         if type(v) is set:
             return set(_convert_seq(v))
-    
+
         if type(v) is dict:
             return _convert_dict(v)
-    
-        return _safe_repr(v)
-    
 
-def _cache_files(files):
-    for name, data in files.items():
-        lines = [line + "\n" for line in data.splitlines()]
-        linecache.cache[name] = (len(data), None, lines, name)
+        return _safe_repr(v)
+
+
+def _get_expect_file_paths(py_source_directory, name):
+    expect_file_paths = []
+    os.path.join(py_source_directory, name)
+    dir_parts = name.split(os.path.sep)
+    for index in range(len(dir_parts)):
+        expect_file_path = os.path.join(py_source_directory,
+                                        *dir_parts[index:])
+        expect_file_paths.append(expect_file_path)
+
+    return expect_file_paths
+
+
+def _find_py_file_path(name, py_source_directory):
+    expect_file_paths = _get_expect_file_paths(py_source_directory, name)
+    for expect_file_path in expect_file_paths:
+        if os.path.exists(expect_file_path):
+            return expect_file_path
+    raise Exception("Cannot recover pyc files")
+
+
+def _recover_py_source_codes(name, source, py_source_directory):
+    if source == PYC_FILE_MARKER:
+        py_file_path = _find_py_file_path(name, py_source_directory)
+        with open(py_file_path) as f:
+            data = f.read()
+        return data
+
+    return source
+
+
+def _cache_files(files, py_source_directory):
+    for name, source in files.items():
+        source_codes = \
+            _recover_py_source_codes(name, source, py_source_directory)
+        lines = [line + "\n" for line in source_codes.splitlines()]
+        linecache.cache[name] = (len(source_codes), None, lines, name)
 
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="%s v%s: post-mortem debugging for Python programs"
-        % (sys.executable, __version__)
-    )
+        description="%s v%s: post-mortem debugging for Python programs" %
+        (sys.executable, __version__))
     debugger_group = parser.add_mutually_exclusive_group(required=False)
     debugger_group.add_argument(
         "--pdb",
@@ -297,15 +338,17 @@ def main():
         help="Use ipdb IPython debugger",
     )
     parser.add_argument("filename", help="dumped file")
+    parser.add_argument("--directory",
+                        dest="py_source_directory",
+                        default=".",
+                        help="Py source directory")
     args = parser.parse_args()
     if not args.debugger:
         args.debugger = "pdb"
 
     print("Starting %s..." % args.debugger, file=sys.stderr)
     dbg = __import__(args.debugger)
-    return debug_dump(
-        args.filename, dbg.post_mortem
-    )
+    return debug_dump(args.filename, args.py_source_directory, dbg.post_mortem)
 
 
 if __name__ == "__main__":

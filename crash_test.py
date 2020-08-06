@@ -1,12 +1,13 @@
 if __name__ == '__main__':
+
     def foo():
         foovar = 7
         bar()
 
     def bar():
         barvar = "hello"
-        list_sample = [1,2,3,4]
-        dict_sample = {'a':1, 'b':2}
+        list_sample = [1, 2, 3, 4]
+        dict_sample = {'a': 1, 'b': 2}
         baz()
 
     def baz():
@@ -22,7 +23,7 @@ if __name__ == '__main__':
 
     try:
         foo()
-    except:
+    except Exception:
         import pydump
         filename = __file__ + '.dump'
         print("Exception caught, writing %s" % filename)
