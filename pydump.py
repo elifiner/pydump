@@ -26,18 +26,8 @@ import sys
 import pdb
 import gzip
 import linecache
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
-
-PY2 = (sys.version_info.major == 2)
-
-if PY2:
-    import __builtin__ as builtins
-else:
-    import builtins
+import _pickle as pickle
+import builtins
 
 try:
     import dill
@@ -74,7 +64,7 @@ def save_dump(filename, tb=None):
         if dill is not None:
             dill.dump(dump, f)
         else:
-            pickle.dump(dump, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(dump, f, -1)
 
 
 def load_dump(filename):
@@ -138,6 +128,7 @@ class FakeCode(object):
         self.co_lnotab = code.co_lnotab
         self.co_varnames = code.co_varnames
         self.co_flags = code.co_flags
+        self.co_code = code.co_code
 
 
 class FakeFrame(object):
@@ -234,10 +225,7 @@ def _convert(v):
     else:
         from datetime import date, time, datetime, timedelta
     
-        if PY2:
-            BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
-        else:
-            BUILTIN = (str, int, float, date, time, datetime, timedelta)
+        BUILTIN = (str, int, float, date, time, datetime, timedelta)
         # XXX: what about bytes and bytearray?
     
         if v is None:
