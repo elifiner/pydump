@@ -26,8 +26,19 @@ import sys
 import pdb
 import gzip
 import linecache
-import _pickle as pickle
-import builtins
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
+
+PY2 = sys.version_info.major == 2
+
+if PY2:
+    import __builtin__ as builtins
+else:
+    import builtins
 
 try:
     import dill
@@ -64,7 +75,7 @@ def save_dump(filename, tb=None):
         if dill is not None:
             dill.dump(dump, f)
         else:
-            pickle.dump(dump, f, -1)
+            pickle.dump(dump, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def load_dump(filename):
@@ -79,7 +90,7 @@ def load_dump(filename):
                 try:
                     with open(filename, "rb") as f:
                         return dill.load(f)
-                except: 
+                except:
                     pass  # dill load failed, try pickle instead
         try:
             return pickle.load(f)
@@ -91,10 +102,22 @@ def load_dump(filename):
 def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
     # monkey patching for pdb's longlist command
     import inspect, types
-    inspect.isframe = lambda obj: isinstance(obj, types.FrameType) or obj.__class__.__name__ == "FakeFrame"
-    inspect.iscode = lambda obj: isinstance(obj, types.CodeType) or obj.__class__.__name__ == "FakeCode"
-    inspect.isclass = lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"
-    inspect.istraceback = lambda obj: isinstance(obj, types.TracebackType) or obj.__class__.__name__ == "FakeTraceback"
+
+    inspect.isframe = (
+        lambda obj: isinstance(obj, types.FrameType)
+        or obj.__class__.__name__ == "FakeFrame"
+    )
+    inspect.iscode = (
+        lambda obj: isinstance(obj, types.CodeType)
+        or obj.__class__.__name__ == "FakeCode"
+    )
+    inspect.isclass = (
+        lambda obj: isinstance(obj, type) or obj.__class__.__name__ == "FakeClass"
+    )
+    inspect.istraceback = (
+        lambda obj: isinstance(obj, types.TracebackType)
+        or obj.__class__.__name__ == "FakeTraceback"
+    )
     dump = load_dump(dump_filename)
     _cache_files(dump["files"])
     tb = dump["traceback"]
@@ -106,7 +129,6 @@ def debug_dump(dump_filename, post_mortem_func=pdb.post_mortem):
 
 
 class FakeClass(object):
-
     def __init__(self, repr, vars):
         self.__repr = repr
         self.__dict__.update(vars)
@@ -116,7 +138,6 @@ class FakeClass(object):
 
 
 class FakeCode(object):
-
     def __init__(self, code):
         self.co_filename = os.path.abspath(code.co_filename)
         self.co_name = code.co_name
@@ -132,7 +153,6 @@ class FakeCode(object):
 
 
 class FakeFrame(object):
-
     def __init__(self, frame):
         self.f_code = FakeCode(frame.f_code)
         self.f_locals = _convert_dict(frame.f_locals)
@@ -143,9 +163,8 @@ class FakeFrame(object):
         if "self" in self.f_locals:
             self.f_locals["self"] = _convert_obj(frame.f_locals["self"])
 
-                    
-class FakeTraceback(object):
 
+class FakeTraceback(object):
     def __init__(self, traceback):
         self.tb_frame = FakeFrame(traceback.tb_frame)
         self.tb_lineno = traceback.tb_lineno
@@ -185,9 +204,9 @@ def _get_traceback_files(traceback):
                 try:
                     files[filename] = open(filename).read()
                 except IOError:
-                    files[
-                        filename
-                    ] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                    files[filename] = (
+                        "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                    )
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
@@ -224,30 +243,33 @@ def _convert(v):
             return _safe_repr(v)
     else:
         from datetime import date, time, datetime, timedelta
-    
-        BUILTIN = (str, int, float, date, time, datetime, timedelta)
+
+        if PY2:
+            BUILTIN = (str, unicode, int, long, float, date, time, datetime, timedelta)
+        else:
+            BUILTIN = (str, int, float, date, time, datetime, timedelta)
         # XXX: what about bytes and bytearray?
-    
+
         if v is None:
             return v
-    
+
         if type(v) in BUILTIN:
             return v
-    
+
         if type(v) is tuple:
             return tuple(_convert_seq(v))
-    
+
         if type(v) is list:
             return list(_convert_seq(v))
-    
+
         if type(v) is set:
             return set(_convert_seq(v))
-    
+
         if type(v) is dict:
             return _convert_dict(v)
-    
+
         return _safe_repr(v)
-    
+
 
 def _cache_files(files):
     for name, data in files.items():
@@ -291,9 +313,7 @@ def main():
 
     print("Starting %s..." % args.debugger, file=sys.stderr)
     dbg = __import__(args.debugger)
-    return debug_dump(
-        args.filename, dbg.post_mortem
-    )
+    return debug_dump(args.filename, dbg.post_mortem)
 
 
 if __name__ == "__main__":
