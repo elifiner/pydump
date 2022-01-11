@@ -26,6 +26,7 @@ import sys
 import pdb
 import gzip
 import linecache
+from pathlib import PureWindowsPath
 
 try:
     import cPickle as pickle
@@ -47,6 +48,8 @@ except ImportError:
 __version__ = "1.2.0"
 DUMP_VERSION = 1
 PYC_FILE_MARKER = "__THIS_IS_PYC_FILE__"
+PY_FILE_MARKER = "__THIS_IS_PY_FILE__"
+UNKNOWN_FILE_MARKER = "__THIS_IS_UNKNOWN_FILE__"
 
 
 def save_dump(filename, tb=None):
@@ -195,17 +198,17 @@ def _get_traceback_files(traceback):
             filename = os.path.abspath(frame.f_code.co_filename)
             if filename not in files:
                 try:
-                    with open(filename) as f:
+                    with open(filename, encoding="utf-8") as f:
                         files[filename] = f.read()
                 except IOError:
-                    root, _ = os.path.splitext(filename)
-                    pyc_path = "".join((root, ".pyc"))
-                    pyc_file_exists = os.path.exists(pyc_path)
-                    if pyc_file_exists:
+                    isEndWithPyc = filename.endswith(".pyc")
+                    isEndWithPy = filename.endswith(".py")
+                    if isEndWithPyc:
                         files[filename] = PYC_FILE_MARKER
+                    elif isEndWithPy:
+                        files[filename] = PY_FILE_MARKER
                     else:
-                        files[
-                            filename] = "couldn't locate '%s' during dump" % frame.f_code.co_filename
+                        files[filename] = UNKNOWN_FILE_MARKER
             frame = frame.f_back
         traceback = traceback.tb_next
     return files
@@ -274,7 +277,8 @@ def _convert(v):
 def _get_expect_file_paths(py_source_directory, name):
     expect_file_paths = []
     os.path.join(py_source_directory, name)
-    dir_parts = name.split(os.path.sep)
+    dir_parts = PureWindowsPath(name).parts
+
     for index in range(len(dir_parts)):
         expect_file_path = os.path.join(py_source_directory,
                                         *dir_parts[index:])
@@ -292,9 +296,11 @@ def _find_py_file_path(name, py_source_directory):
 
 
 def _recover_py_source_codes(name, source, py_source_directory):
-    if source == PYC_FILE_MARKER:
+    expectSourceSet = {PYC_FILE_MARKER, PY_FILE_MARKER}
+    isExpectedSource = source in expectSourceSet
+    if isExpectedSource:
         py_file_path = _find_py_file_path(name, py_source_directory)
-        with open(py_file_path) as f:
+        with open(py_file_path, encoding="utf-8") as f:
             data = f.read()
         return data
 
