@@ -1,5 +1,6 @@
 *.py[cod]
 *.dump
+tests/pyc_error.py
 
 # C extensions
 *.so
