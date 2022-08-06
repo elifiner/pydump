@@ -138,6 +138,12 @@ class FakeCode(object):
         self.co_lnotab = code.co_lnotab
         self.co_varnames = code.co_varnames
         self.co_flags = code.co_flags
+        self._co_lines = list(code.co_lines()) if hasattr(code, 'co_lines') else []
+        if hasattr(code, 'co_kwonlyargcount'):
+            self.co_kwonlyargcount = code.co_kwonlyargcount
+
+    def co_lines(self):
+        return iter(self._co_lines)
 
 
 class FakeFrame(object):
